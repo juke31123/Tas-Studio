@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <AssemblyName>TasStudio</AssemblyName>
+    <Version>0.3.3</Version>
+    <Authors>Juke</Authors>
+    <Company>Juke</Company>
+    <Product>Tas Studio</Product>
+    <LangVersion>latest</LangVersion>
+    <GenerateDependencyFile>false</GenerateDependencyFile>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <HarmonyPath Condition="'$(HarmonyPath)' == ''">$(MSBuildThisFileDirectory).packages\lib.harmony.2.3.3\lib\net472\0Harmony.dll</HarmonyPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Core\**\*.cs;Runtime\**\*.cs;UI\**\*.cs;TasMod.cs" />
+    <Reference Include="Recharge.ModApi"><HintPath>$(ManagedDir)\Recharge.ModApi.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Assembly-CSharp"><HintPath>$(ManagedDir)\Assembly-CSharp.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(ManagedDir)\UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.Physics2DModule"><HintPath>$(ManagedDir)\UnityEngine.Physics2DModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.IMGUIModule"><HintPath>$(ManagedDir)\UnityEngine.IMGUIModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.InputLegacyModule"><HintPath>$(ManagedDir)\UnityEngine.InputLegacyModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.JSONSerializeModule"><HintPath>$(ManagedDir)\UnityEngine.JSONSerializeModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Unity.InputSystem"><HintPath>$(ManagedDir)\Unity.InputSystem.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Newtonsoft.Json"><HintPath>$(ManagedDir)\Newtonsoft.Json.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="0Harmony"><HintPath>$(HarmonyPath)</HintPath><Private>true</Private></Reference>
+    <None Include="mod.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="INSTALL.md" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="CheckGameReferences" BeforeTargets="ResolveReferences">
+    <Error Condition="!Exists('$(ManagedDir)\Recharge.ModApi.dll')" Text="Pass -p:ManagedDir=.../IGTAPfullGame_Data/Managed from a Recharge-patched game installation." />
+    <Error Condition="!Exists('$(HarmonyPath)')" Text="Run build.ps1 to fetch Harmony, or pass -p:HarmonyPath=.../0Harmony.dll (Harmony 2.3.3 net472 fat build)." />
+  </Target>
+</Project>
