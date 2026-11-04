@@ -13,11 +13,13 @@ namespace Igtap.Tas
     {
         public string Id => "Tas.Studio";
         public string DisplayName => "Tas Studio";
-        public Version Version => new Version(0, 3, 3);
+        public Version Version => new Version(0, 6, 1);
         private TasSession _session;
         private GamePatches _patches;
         private LoopHooks _loop;
         private GameObject _ui;
+        private TasDesktopHost _window;
+        private TasLauncher _launcher;
         private TasMenuEntry _menuEntry;
         private IRechargeHost _host;
         private RepeatabilityCheck _check;
@@ -38,10 +40,14 @@ namespace Igtap.Tas
             _check = new RepeatabilityCheck(_session);
             _ui = new GameObject("Tas Studio");
             UnityEngine.Object.DontDestroyOnLoad(_ui);
-            _ui.AddComponent<TasWindow>().Initialize(_session, _check);
+            _window = _ui.AddComponent<TasDesktopHost>();
+            _window.Initialize(_session);
+            _launcher = new TasLauncher(_session, () => _enabled && !_disablePending, () => _window.OpenDesktop());
             EnableRuntime();
-            _menuEntry = new TasMenuEntry(host, () => _disablePending ? "Tas Studio (stopping...)" : _enabled ? "Tas Studio (enabled)" : "Tas Studio (disabled)", ToggleEnabled);
-            host.Log("Tas Studio loaded; " + _patches.PatchedMethods + " runtime hooks installed. F5 shows controls; the Recharge menu entry enables/disables the mod.");
+            _menuEntry = new TasMenuEntry(host, panel => panel.AddComponent<TasSettingsPanel>().Build(panel, _session, _launcher,
+                () => _disablePending ? "Cancel disable" : _enabled ? "Disable Tas Studio" : "Enable Tas Studio", ToggleEnabled,
+                () => _window.OpenDesktop(), () => _enabled && !_disablePending));
+            host.Log("Tas Studio loaded; " + _patches.PatchedMethods + " runtime hooks installed. Open Mods > Tas Studio to create, load or replay a run. F5 opens desktop controls.");
         }
         private void ToggleEnabled()
         {
@@ -59,12 +65,13 @@ namespace Igtap.Tas
                 _patches = new GamePatches(); _patches.Install(_session);
                 _loop = new LoopHooks(Early, End);
                 _enabled = true; _disablePending = false;
-                _session.ShowWindow = true; _ui.SetActive(true);
+                _ui.SetActive(true);
             }
             catch { DisableRuntime(); throw; }
         }
         private void Early()
         {
+            _window?.PumpDesktop();
             _session.Early();
             if (!_disablePending) return;
             try
@@ -84,6 +91,8 @@ namespace Igtap.Tas
         private void End()
         {
             _session.End();
+            _launcher?.Tick();
+            _window?.RefreshPlayerStats();
             if (_disablePending)
             {
                 if (!_session.Active) { DisableRuntime(); _menuEntry?.Refresh(); }
@@ -125,7 +134,7 @@ namespace Igtap.Tas
                 {
                     if (_ui != null) UnityEngine.Object.Destroy(_ui);
                     AppDomain.CurrentDomain.AssemblyResolve -= ResolveDependency;
-                    _session = null; _ui = null; _menuEntry = null; _check = null; _host = null;
+                    _session = null; _ui = null; _window = null; _launcher = null; _menuEntry = null; _check = null; _host = null;
                 }
             }
         }

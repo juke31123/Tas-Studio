@@ -32,6 +32,11 @@ $manifest = Get-Content -LiteralPath (Join-Path $root 'mod.json') -Raw | Convert
 $output = Join-Path $root 'artifacts\Tas.Studio'
 New-Item -ItemType Directory -Force $output | Out-Null
 $packageFiles = @('TasStudio.dll', '0Harmony.dll', 'mod.json', 'INSTALL.md', 'Harmony-LICENSE.txt')
+# Remove only obsolete companion binaries from this build output. Preserve data.
+foreach ($name in @('TasStudio.Desktop.exe', 'TasStudio.Desktop.dll', 'TasStudio.Desktop.deps.json', 'TasStudio.Desktop.runtimeconfig.json')) {
+    $obsolete = Join-Path $output ('Desktop\' + $name)
+    if (Test-Path -LiteralPath $obsolete) { Remove-Item -LiteralPath $obsolete }
+}
 foreach ($name in @('TasStudio.dll', '0Harmony.dll', 'mod.json', 'INSTALL.md')) {
     Copy-Item -LiteralPath (Join-Path $root "bin\Release\netstandard2.1\$name") -Destination $output
 }

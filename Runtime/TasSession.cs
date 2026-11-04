@@ -30,8 +30,9 @@ namespace Igtap.Tas.Runtime
         private string _stopScene, _setupError;
         private Savestate _restoringState;
         public bool RestoringState => _restoringState != null;
-        public bool ShowSavestates;
-        public bool CanSaveState => Active && Frozen && Mode == SessionMode.Recording && !_resumeAtEnd && !_frameOpen;
+        public int DesktopPageRequest = -1;
+        internal float PreviewTimeScale => _clock?.SimulationScale ?? Time.timeScale;
+        public bool CanSaveState => Active && Frozen && Mode == SessionMode.Recording && !_resumeAtEnd && !_frameOpen && !HasPendingEdits;
         public bool IsMainMenu => Adapter.OnMainMenu;
         internal bool SuppressSavedProgressLoad => Active && Movie.StartSetup != null && Mode != SessionMode.Stopping;
         internal void NotifySetupError(string message) { _setupError = message; }
@@ -46,10 +47,39 @@ namespace Igtap.Tas.Runtime
         public bool Active => _clock != null;
         public bool Frozen { get; private set; }
         public int Cursor { get; private set; }
-        public string Status { get; private set; } = "Ready. Recording/playback reloads the current saved scene.";
+        public string Status { get; private set; } = "Ready. Create a new Tas or load a saved run.";
         public string FileName = "my-run";
-        public bool ShowWindow = true;
         public bool UseAuthoredInput;
+        public bool UseTimelineInput;
+        public Movie PendingTimeline { get; private set; }
+        private int _pendingFirst;
+        public bool HasPendingEdits => PendingTimeline != null;
+        public Movie EditorMovie => PendingTimeline ?? Movie;
+        public void StageTimelineEdit(Movie movie, int firstChanged)
+        {
+            if (!CanEditTimeline) throw new InvalidOperationException("Pause the run before editing frames.");
+            movie.Validate();
+            _pendingFirst = HasPendingEdits ? Math.Min(_pendingFirst, firstChanged) : firstChanged;
+            PendingTimeline = movie;
+            Status = "Unsaved timeline edits. Save edits to apply them, or Discard to keep the current run.";
+        }
+        public void SaveTimelineEdits()
+        {
+            if (!HasPendingEdits) return;
+            if (!CanEditTimeline) throw new InvalidOperationException("Pause the run before saving edits.");
+            var pending = PendingTimeline; var original = Movie; int first = _pendingFirst;
+            PendingTimeline = null;
+            try { ApplyTimelineEdit(pending, first); Save(); }
+            catch { if (ReferenceEquals(Movie, original)) PendingTimeline = pending; throw; }
+        }
+        public void DiscardTimelineEdits() { PendingTimeline = null; Status = "Pending timeline edits discarded."; }
+        private void RequireNoPendingEdits()
+        {
+            if (HasPendingEdits) throw new InvalidOperationException("Save edits or Discard in the Frame Editor first.");
+        }
+        private bool _rebuildingEdit, _editReturnRecording;
+        public bool CanEditTimeline => !Active || (Frozen && !_frameOpen && !_resumeAtEnd && _restoringState == null &&
+            (Mode == SessionMode.Recording || Mode == SessionMode.Playback || Mode == SessionMode.Complete));
         public bool StartPaused = true;
         internal bool DiagnosticNeutralInput;
         public FrameInput AuthoredInput;
@@ -71,8 +101,12 @@ namespace Igtap.Tas.Runtime
         // UI requests are serialized at the loop boundary, never from OnGUI mid-frame.
         public void Queue(Action command)
         {
-            if (_command != null) { Status = "A command is already pending."; return; }
-            _command = command;
+            if (!TryQueue(command)) Status = "A command is already pending.";
+        }
+        internal bool TryQueue(Action command)
+        {
+            if (_command != null) return false;
+            _command = command; return true;
         }
         private void SceneLoaded(Scene scene, LoadSceneMode mode)
         {
@@ -182,16 +216,20 @@ namespace Igtap.Tas.Runtime
         }
         public void SaveState(string label)
         {
+            RequireNoPendingEdits();
             if (!CanSaveState) throw new InvalidOperationException("Pause recording at a complete frame before saving a state.");
             var state = new Savestate {
                 TasName = MovieStore.NormalizeName(FileName), Label = MovieStore.NormalizeName(label), Frame = Cursor,
                 Movie = MovieStore.Clone(Movie), World = CaptureWorld()
             };
+            // Planned future rows are not part of the current world checkpoint.
+            state.Movie.Frames.RemoveRange(Cursor, state.Movie.Frames.Count - Cursor);
             string name = States.Save(state);
             Status = "Saved " + name + ".state.json at frame " + Cursor + ".";
         }
         public void LoadState(string name)
         {
+            RequireNoPendingEdits();
             if (Active && !CanSaveState) throw new InvalidOperationException("Pause recording before loading a savestate.");
             // Complete every validation and backup before leaving the live state.
             var state = States.Load(name);
@@ -260,7 +298,8 @@ namespace Igtap.Tas.Runtime
                     throw new InvalidOperationException("A game menu opened during the movie.");
                 if (Mode == SessionMode.Complete || Mode == SessionMode.Desync) return;
                 _previous = _current;
-                _current = Mode == SessionMode.Warmup ? default : _playing ? Movie.Frames[Cursor].Input : DiagnosticNeutralInput ? default : UseAuthoredInput ? AuthoredInput : Adapter.ReadPhysicalInput();
+                _current = Mode == SessionMode.Warmup ? default : _playing ? Movie.Frames[Cursor].Input : DiagnosticNeutralInput ? default :
+                    UseTimelineInput && Cursor < Movie.Frames.Count ? Movie.Frames[Cursor].Input : UseAuthoredInput ? AuthoredInput : Adapter.ReadPhysicalInput();
                 _fixedTicks = 0; _frameOpen = true;
                 MovementTimers.Advance(StepSeconds * (double)Time.timeScale);
             }
@@ -328,12 +367,22 @@ namespace Igtap.Tas.Runtime
                             var difference = ProbeComparer.Difference(frame.Expected, state);
                             if (difference == null && frame.FixedTicks >= 0 && frame.FixedTicks != _fixedTicks) difference = "Physics tick schedule differs";
                             if (difference != null) { Desync("Frame " + Cursor + ": " + difference); return; }
+                            // A recording rebuild observes the changed prefix afresh.
+                            // These become recording references, not independent proof.
+                            if (_rebuildingEdit && _editReturnRecording && frame.Expected == null)
+                            { frame.Expected = state; frame.FixedTicks = _fixedTicks; }
                             // Validate edits by replaying them, but don't label new probes as independent proof.
                         }
                         else
                         {
-                            if (Movie.Frames.Count >= Core.Movie.MaxFrames) throw new InvalidOperationException("Maximum movie length reached; save the recording.");
-                            Movie.Frames.Add(new MovieFrame { Input = _current, Expected = state, FixedTicks = _fixedTicks });
+                            if (Cursor >= Core.Movie.MaxFrames) throw new InvalidOperationException("Maximum movie length reached; save the recording.");
+                            var recorded = new MovieFrame { Input = _current, Expected = state, FixedTicks = _fixedTicks };
+                            if (Cursor < Movie.Frames.Count)
+                            {
+                                if (!UseTimelineInput) Timeline.Invalidate(Movie, Cursor);
+                                Movie.Frames[Cursor] = recorded;
+                            }
+                            else Movie.Frames.Add(recorded);
                             Dirty = true;
                         }
                         Cursor++;
@@ -376,6 +425,13 @@ namespace Igtap.Tas.Runtime
         private void FinishSeek()
         {
             _seek = -1;
+            if (_rebuildingEdit)
+            {
+                _rebuildingEdit = false; _playing = !_editReturnRecording;
+                Mode = _editReturnRecording ? SessionMode.Recording : Cursor < Movie.Frames.Count ? SessionMode.Playback : SessionMode.Complete;
+                Dirty = true; PauseNow(); Status = "Edited timeline rebuilt to frame " + Cursor + ". Paused; future inputs are preserved.";
+                return;
+            }
             if (_restoringState != null)
             {
                 var expectedWorld = _restoringState.World;
@@ -409,6 +465,7 @@ namespace Igtap.Tas.Runtime
         }
         public void BranchHere()
         {
+            RequireNoPendingEdits();
             if (!Active || !Frozen || Mode != SessionMode.Playback) throw new InvalidOperationException("Pause playback at the branch frame first.");
             Store.Save(FileName + "-before-branch", Movie);
             Timeline.Branch(Movie, Cursor); _playing = false; Mode = SessionMode.Recording; Dirty = true;
@@ -416,7 +473,9 @@ namespace Igtap.Tas.Runtime
         }
         public void Stop()
         {
+            RequireNoPendingEdits();
             if (!Active || Mode == SessionMode.Stopping) return;
+            _rebuildingEdit = false;
             _restoringState = null;
             if (Dirty && (Movie.StartState != null || Movie.Frames.Count > 0)) Save();
             else Dirty = false;
@@ -434,6 +493,7 @@ namespace Igtap.Tas.Runtime
         }
         public void Save()
         {
+            RequireNoPendingEdits();
             if (Movie.StartState == null && Movie.Frames.Count == 0) throw new InvalidOperationException("There is no recording to save yet. Select a saved run below to load it.");
             FileName = MovieStore.NormalizeName(FileName); Movie.Name = FileName;
             Store.Save(FileName, Movie); Dirty = false; Status = "Saved " + FileName + ".tas.json";
@@ -454,6 +514,29 @@ namespace Igtap.Tas.Runtime
         }
         public void Edited() { RequireIdle(); Movie.Validate(); Dirty = true; Cursor = 0; }
         public void RestoreEdit(Movie movie) { RequireIdle(); movie.Validate(); Movie = movie; Dirty = true; Cursor = 0; }
+        public void ApplyTimelineEdit(Movie movie, int firstChanged)
+        {
+            if (!CanEditTimeline) throw new InvalidOperationException("Pause recording or replay before editing frames.");
+            movie.Validate();
+            if (!Active) { RestoreEdit(movie); UseTimelineInput = true; return; }
+            int target = Math.Min(Cursor, movie.Frames.Count);
+            bool recording = Mode == SessionMode.Recording;
+            if (firstChanged < Cursor)
+            {
+                ValidatePlayback(movie, target);
+                Store.Save("before-timeline-edit-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N").Substring(0, 8), Movie);
+                movie.Rerecords = Math.Max(movie.Rerecords, Movie.Rerecords) + 1;
+                Release(); Movie = movie; Dirty = true; UseTimelineInput = true;
+                _seek = target; _seekBranch = false; _rebuildingEdit = true; _editReturnRecording = recording;
+                Begin(true); Status = "Rebuilding edited timeline to frame " + target + ".";
+            }
+            else
+            {
+                Movie = movie; Dirty = true; UseTimelineInput = true;
+                if (Mode == SessionMode.Complete && Cursor < Movie.Frames.Count) Mode = SessionMode.Playback;
+                Status = "Future frame inputs updated.";
+            }
+        }
         public void SetSpeed(float speed)
         {
             PlaybackSpeed.Validate(speed);
@@ -524,22 +607,24 @@ namespace Igtap.Tas.Runtime
             }
             Status = error.Message; _host.LogError(error.ToString());
         }
-        private void RequireIdle() { if (Active) throw new InvalidOperationException("Stop the active session first."); }
+        private void RequireIdle() { RequireNoPendingEdits(); if (Active) throw new InvalidOperationException("Stop the active session first."); }
         private void RequireRunning()
         {
+            RequireNoPendingEdits();
             if (!Active || (Mode != SessionMode.Recording && Mode != SessionMode.Playback)) throw new InvalidOperationException("Start a recording or playback first.");
         }
         private void Hotkeys()
         {
             var k = Keyboard.current; if (k == null) return;
-            if (k.f5Key.wasPressedThisFrame) ShowWindow = !ShowWindow;
-            if (k.f9Key.wasPressedThisFrame && (Mode == SessionMode.Recording || RestoringState || Mode == SessionMode.Desync)) ShowSavestates = !ShowSavestates;
+            if (k.f5Key.wasPressedThisFrame || k.f10Key.wasPressedThisFrame) DesktopPageRequest = 0;
+            if (k.f9Key.wasPressedThisFrame) DesktopPageRequest = 3;
             if (k.f8Key.wasPressedThisFrame && Active) Queue(Stop);
             else if (k.f6Key.wasPressedThisFrame && (Mode == SessionMode.Recording || Mode == SessionMode.Playback)) Queue(TogglePause);
             else if (k.f7Key.wasPressedThisFrame && (Mode == SessionMode.Recording || Mode == SessionMode.Playback)) Queue(Step);
         }
         private void Release()
         {
+            _rebuildingEdit = false;
             _restoringState = null;
             Adapter.RestoreStartEnvironment();
             MovementTimers.Clear();
@@ -552,7 +637,7 @@ namespace Igtap.Tas.Runtime
         public void Dispose()
         {
             SceneManager.sceneLoaded -= SceneLoaded;
-            try { if (Dirty) Store.Save("recovery", Movie); }
+            try { if (HasPendingEdits) Store.Save("recovery-pending-edits", PendingTimeline); if (Dirty) Store.Save("recovery", Movie); }
             finally { Release(); }
         }
     }

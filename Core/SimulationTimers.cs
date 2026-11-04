@@ -25,6 +25,13 @@ namespace Igtap.Tas.Core
         }
         public void Cancel(object owner, string method = null) => _pending.RemoveAll(p => ReferenceEquals(p.Owner, owner) && (method == null || p.Method == method));
         public bool Contains(object owner, string method = null) => _pending.Exists(p => ReferenceEquals(p.Owner, owner) && (method == null || p.Method == method));
+        public double Remaining(object owner, string method)
+        {
+            double remaining = double.PositiveInfinity;
+            foreach (var timer in _pending)
+                if (ReferenceEquals(timer.Owner, owner) && timer.Method == method) remaining = Math.Min(remaining, Math.Max(0, timer.Due - Time));
+            return remaining;
+        }
         public void Advance(double scaledSeconds)
         {
             if (double.IsNaN(scaledSeconds) || double.IsInfinity(scaledSeconds) || scaledSeconds < 0) throw new ArgumentOutOfRangeException(nameof(scaledSeconds));

@@ -2,7 +2,7 @@
   <PropertyGroup>
     <TargetFramework>netstandard2.1</TargetFramework>
     <AssemblyName>TasStudio</AssemblyName>
-    <Version>0.3.3</Version>
+    <Version>0.6.1</Version>
     <Authors>Juke</Authors>
     <Company>Juke</Company>
     <Product>Tas Studio</Product>
@@ -12,12 +12,14 @@
     <HarmonyPath Condition="'$(HarmonyPath)' == ''">$(MSBuildThisFileDirectory).packages\lib.harmony.2.3.3\lib\net472\0Harmony.dll</HarmonyPath>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="Core\**\*.cs;Runtime\**\*.cs;UI\**\*.cs;TasMod.cs" />
+    <Reference Include="UnityEngine.UI"><HintPath>$(ManagedDir)\UnityEngine.UI.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.UIModule"><HintPath>$(ManagedDir)\UnityEngine.UIModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Unity.TextMeshPro"><HintPath>$(ManagedDir)\Unity.TextMeshPro.dll</HintPath><Private>false</Private></Reference>
+    <Compile Include="Core\**\*.cs;Runtime\**\*.cs;UI\**\*.cs;DesktopShared\*.cs;TasMod.cs" />
     <Reference Include="Recharge.ModApi"><HintPath>$(ManagedDir)\Recharge.ModApi.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="Assembly-CSharp"><HintPath>$(ManagedDir)\Assembly-CSharp.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.CoreModule"><HintPath>$(ManagedDir)\UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.Physics2DModule"><HintPath>$(ManagedDir)\UnityEngine.Physics2DModule.dll</HintPath><Private>false</Private></Reference>
-    <Reference Include="UnityEngine.IMGUIModule"><HintPath>$(ManagedDir)\UnityEngine.IMGUIModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.InputLegacyModule"><HintPath>$(ManagedDir)\UnityEngine.InputLegacyModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.JSONSerializeModule"><HintPath>$(ManagedDir)\UnityEngine.JSONSerializeModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="Unity.InputSystem"><HintPath>$(ManagedDir)\Unity.InputSystem.dll</HintPath><Private>false</Private></Reference>

@@ -1,5 +1,8 @@
 # Savestates and rerecording
 
+Current UI (0.6.0): these controls live in the desktop Studio, opened automatically after starting a run from Mods > Tas Studio. F5 reopens Studio and Frame Editor; F9 selects States and F10 shows player stats. The former floating in-game windows have been removed.
+
+
 TASVideos describes movie savestates as carrying the input movie and its frame count; loading in recording mode restores that timeline and increments the rerecord count. See [On Savestates](https://tasvideos.org/LawsOfTAS/OnSavestates) and [BizHawk rerecording](https://tasvideos.org/Bizhawk/Rerecording). A position/velocity teleport is insufficient: money, upgrades, object state, input edges, timers, RNG and the simulation's hidden state affect the future.
 
 ## Implemented backend: replay-checkpoint-v1

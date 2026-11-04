@@ -36,7 +36,7 @@ namespace Igtap.Tas.Core
         {
             if (start < 0 || count < 0 || start > movie.Frames.Count || count > movie.Frames.Count - start) throw new ArgumentOutOfRangeException(nameof(start));
         }
-        private static void Invalidate(Movie movie, int start)
+        internal static void Invalidate(Movie movie, int start)
         {
             // An edit can change every subsequent state, not only the edited frame.
             for (int i = start; i < movie.Frames.Count; i++) { movie.Frames[i].Expected = null; movie.Frames[i].FixedTicks = -1; }

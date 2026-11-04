@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using Recharge.ModApi;
+using UnityEngine;
 
 namespace Igtap.Tas.UI
 {
@@ -9,12 +11,12 @@ namespace Igtap.Tas.UI
     {
         private readonly IRechargeHost _host;
         private readonly Action<object> _sceneLoaded;
-        private readonly Func<string> _label;
-        private Action _toggle;
+        private readonly Action<GameObject> _build;
+        private readonly List<GameObject> _panels = new List<GameObject>();
 
-        public TasMenuEntry(IRechargeHost host, Func<string> label, Action toggle)
+        public TasMenuEntry(IRechargeHost host, Action<GameObject> build)
         {
-            _host = host; _label = label; _toggle = toggle;
+            _host = host; _build = build;
             _sceneLoaded = _ => Install(PauseMenuHelper.FindMenu());
             Install(host.PauseMenu);
             host.Events.On("recharge.scene_loaded", _sceneLoaded);
@@ -22,22 +24,17 @@ namespace Igtap.Tas.UI
         public void Refresh() => Install(PauseMenuHelper.FindMenu());
         private void Install(pauseMenuScript menu)
         {
-            if (menu == null || _toggle == null) return;
-            // AddRow upserts by name, preventing duplicates after a scene reload.
-            PauseMenuHelper.AddRow(menu, "IgtapTasStudio", _label(), () => {
-                try { _toggle?.Invoke(); }
-                finally
-                {
-                    // Recharge assumes each row opens a panel and hides mainBit
-                    // before invoking us. A toggle must keep this menu visible.
-                    if (menu != null) PauseMenuHelper.MainBit(menu)?.SetActive(true);
-                }
-            });
+            if (menu == null) return;
+            var panel = PauseMenuHelper.AddPanelRow(menu, "IgtapTasStudio", "Tas Studio");
+            _panels.RemoveAll(p => p == null);
+            if (panel == null || _panels.Contains(panel)) return;
+            _panels.Add(panel); _build(panel);
         }
         public void Dispose()
         {
-            _toggle = null; // Any cached menu callback becomes harmless.
             _host.Events.Off("recharge.scene_loaded", _sceneLoaded);
+            foreach (var panel in _panels) if (panel != null) UnityEngine.Object.Destroy(panel);
+            _panels.Clear();
         }
     }
 }

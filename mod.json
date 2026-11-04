@@ -1,7 +1,7 @@
 {
   "id": "Tas.Studio",
   "displayName": "Tas Studio",
-  "version": "0.3.3",
+  "version": "0.6.1",
   "author": "Juke",
   "entryAssembly": "TasStudio.dll",
   "minLoaderVersion": "1.0.0",

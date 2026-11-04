@@ -1,3 +1,35 @@
+# Version 0.6.1 validation
+
+The settings panel now fits the actual canvas/camera viewport instead of using its authored size as its final screen size. The 0.6.0 screenshots showed vertical clipping and overflowing help text; the fix includes centered viewport scaling, text autosizing and shorter help labels. Live Unity layout at the reported resolution and after window resizing still needs visual acceptance.
+
+# Version 0.6.0 validation
+
+All 405 workspace checks pass, including 16 settings-launcher lifecycle checks and 75 native desktop checks. Coverage verifies no startup windows, settings entry versus enable/disable, queued creation/loading, disabled and missing-file rejection, preserved start options, readiness before desktop handoff, paused frame zero for recording/replay, single handoff, and removal of duplicate native launch/overlay controls. Existing draft editing, buffering, checkpoints and replay checks pass. The Unity settings panel compiles against the installed game; actual panel layout, Back/Close navigation, resolution scaling, focus and scene reload behavior still require in-game acceptance.
+
+# Version 0.5.2 validation
+
+All 387 workspace checks pass, including 74 native desktop/session checks. New native rendering coverage verifies the completed offscreen bitmap, no grid invalidation for identical snapshots or status-only changes, redraws after input/cursor changes, stable GDI resource counts across repeated resizing, and buffer cleanup/recreation on close/reopen. Existing editing, manual-save rebuild, replay and checkpoint tests pass. These checks use real Win32 windows with a fake Unity boundary; visual confirmation in the running game is still required.
+
+# Version 0.5.1 validation
+
+All 378 workspace checks pass, including 65 native desktop/session checks. New coverage verifies draft-only painting and undo, no automatic rebuild, explicit native Save edits/Discard buttons, stepping blocked before commit, drafts surviving window closure, and saving an inline value still being typed. Existing replay, checkpoint and state-rebuild checks pass. Native layout inspection is separate from live Unity/Mono acceptance.
+
+# Version 0.5.0 validation
+
+All 365 workspace checks pass: the prior 299 core/session/stats checks, 52 native desktop/session integration checks and 14 frame-cell model checks. Native tests now click the second window's grid, drag a column, type an analog value in-place, rebuild/undo earlier edits, preserve planned future rows, save prefix checkpoints and replay an edited movie to completion. Both windows are rendered for layout inspection. The Unity boundary is faked; native UI inside Unity/Mono still needs acceptance testing. Production builds must have zero warnings/errors. See [FRAME-EDITOR.md](FRAME-EDITOR.md).
+
+# Version 0.4.2 validation
+
+The external application and named-pipe transport have been replaced with a native Win32 window in the hosting process. All 329 workspace checks pass, including 30 native-window/command checks. These create real hidden native windows and verify their process ownership, command queue bounds/copying, selected-input stepping through the native button, configured creation, checkpoints, close/reopen, thread shutdown and background-setting restoration. The game boundary is faked; Unity/Mono acceptance remains separate. All four native pages were rendered and inspected. Production builds have zero warnings/errors. See [DESKTOP-STUDIO.md](DESKTOP-STUDIO.md).
+
+# Version 0.4.1 validation
+
+The desktop experiment adds seven bounded-message framing checks and 24 command/connection checks, bringing the workspace suite to 330 checks. These run the production named-pipe bridge and desktop client with both JSON serializers, using fake Unity boundaries. Coverage includes input-before-step ordering, main-menu creation, invalid speed/input/edit/replay rejection, checkpoint saving, disconnect pausing and background-setting restoration. The Windows form is rendered separately for visual layout inspection. Both production projects must build without warnings/errors. Live Unity IPC, focus changes and in-game acceptance remain to be verified; see [DESKTOP-STUDIO.md](DESKTOP-STUDIO.md).
+
+# Version 0.4.0 validation
+
+The player-stats addition has 43 pure prediction-model checks and 13 monitor/lifecycle checks, bringing the workspace suite to 299 passing checks. The standalone source repository includes the 43 model checks in `Tests/Motion.Tests.csproj`. The Release build targets the installed game and must pass without warnings/errors. Native Unity movement prediction and the F10 window still require the acceptance pass in [PLAYER-STATS.md](PLAYER-STATS.md).
+
 # Version 0.3.0 validation
 
 The Release build passes against the installed game with zero warnings/errors. All 243 automated checks pass, including 36 new savestate checks for paused/frame-zero capture, storage, corruption and path validation, immutable names, original-timeline backups, compatibility rejection before reset, repeated restores, held-input edges, world mismatch diagnostics, cancel, session recreation, and playback of a completed rerecord. Native Unity boundaries are faked in these tests. Real game checkpoint restoration and the new window still require the acceptance checks in SAVESTATES.md.
