@@ -1,3 +1,91 @@
+# Version 0.9.2 validation
+
+Test20 exposed a missing physical input edge: Jump became held at zero-based frame
+128 but ExactEdges was true with Press=0. It remained held until frame 240; the
+release at frame 241 also had Release=0. The game requires a press to set its jump
+buffer. Unity had processed those events during editor pause before the next step.
+
+The session now merges physical held-state changes since the last simulated input
+into native press/release flags before recording and delivering them to the game.
+Native same-frame press/release taps are retained. Authored and replay inputs are
+consumed as stored; no physics scheduling or input sampling phase changed.
+
+A regression using Test20's held-input sequence failed before the fix. It now
+passes at 30/50/60/100/120/144/165/244/280 FPS, with pauses before every step,
+exactly one press/release across the held interval, an additional same-frame tap,
+and matching edge-consumer probes through serialized replay. All 957 checks pass;
+the production build has zero warnings/errors. These regression tests simulate the
+Unity boundary; an actual in-game jump acceptance test remains necessary.
+
+# Version 0.9.1 validation
+
+The release builds against the installed game assemblies with zero warnings/errors.
+All 867 automated checks pass, including 74 new keybind checks: persistence and
+backup, invalid/duplicate assignments, clearing/defaults, corrupted settings fallback,
+detached snapshot copies, Unity focus/modifier/menu suppression, and Win32 key routing.
+The native-window tests confirm updated labels in both editors, rebound pause/step,
+and suppression of repeated keys, previous bindings and typing in a text field.
+The new Unity settings page compiles against the real game UI assemblies; its visual
+layout and interactive key capture still need an in-game acceptance check.
+
+# Version 0.9.0 validation
+
+The native windows share a new theme and grouped layout. Real Win32 previews were
+rendered and inspected for the Run page, savestates, frame editor and minimum-size
+Studio. All 793 workspace checks pass and the production build has no warnings or
+errors. The existing native command, frame painting, repaint suppression, resize
+resource and lifecycle checks remain in place. These previews run outside Unity;
+appearance and focus on the user's game setup still need live acceptance.
+
+# Version 0.8.2 validation
+
+The built-in hitbox renderer, settings, native tab and associated tests are removed.
+All 793 remaining workspace checks pass, including a native UI check confirming
+that the removed controls are absent. Frame/PU timing and FPS diagnostics remain
+covered. This removes the built-in overlay's cost; 280 FPS is not guaranteed by
+this change alone.
+
+# Version 0.8.1 validation
+
+All 825 workspace checks pass, including 14 new real-time FPS diagnostics checks.
+These verify actual versus target FPS, achieved speed, pause exclusion, frame-step
+intervals, EOF accounting, separate CSV reports and nonfatal IO errors. Measurements
+are passive; live slowdown diagnosis awaits the user's short recording/replay.
+
+# Version 0.8.0 validation
+
+All **811 workspace checks** pass. This includes 55 pure timing/format checks and
+315 session checks using a simulated native clock, covering independent frame/PU
+rates, alignment from different starting phases, game freezes, pauses, stepping,
+slow playback, checkpoint reconstruction and rebuilding edited input. The standalone
+repository tests pass 137 checks. The production build has zero warnings/errors.
+Native Win32 previews were visually inspected for red PU rows and the stats countdown.
+
+Separate **live Unity/Mono tests** used a temporary Recharge probe and the actual
+installed game's FPS dropdown: **30, 50, 60, 100, 120, 144, 165, 244, 280**. At each
+rate an 82-frame recording included horizontal movement, a jump/release and a dash.
+Named checkpoint reconstruction, explicit saved-edit rebuilding and subsequent full
+replay passed. State probes, observed PU counts/phases and checkpoint world witnesses
+(including RNG) remained enabled. An additional 100 FPS test passed two-second editor
+pauses, one-frame stepping and playback at 0.1x. Evidence remains locally in
+`.research/fps-probe/result.log`; the temporary probe and generated test runs are
+excluded from the release.
+
+The first-load checkpoint test initially exposed random-state divergence caused by
+footstep animation events while gameplay was frozen. The startup/pause event gate
+fix passed the previously failing first-load case and the subsequent full matrix.
+The probe now treats rejected commands as failures and requires an observed reload
+before accepting reconstruction; an earlier false-positive test result is not counted.
+
+These are short, controlled runs, not proof of whole-game or cross-machine determinism.
+Specific wallclips, long routes, moving-platform/refill interactions and equality with
+unmodded play at the same FPS still need targeted in-game comparison. The next-frame
+movement predictor remains an estimate without collision/interpolation simulation.
+
+# Version 0.7.0 validation
+
+All 438 workspace checks pass, including 25 hitbox geometry/preferences checks and 83 native desktop/session checks. New tests cover circles, capsules, rounded polygon winding, display filters, dot/comma parsing, RGB validation, atomic preferences, corrupted settings, detached native commands, checkbox/Apply controls and changes during paused recording without movie mutation. The new native Hitboxes tab is rendered and visually inspected. The production overlay builds against the installed Unity APIs. Unity collider extraction, camera alignment, shader behavior and renderer lifecycle still require in-game acceptance; this historical feature was removed in 0.8.2.
+
 # Version 0.6.1 validation
 
 The settings panel now fits the actual canvas/camera viewport instead of using its authored size as its final screen size. The 0.6.0 screenshots showed vertical clipping and overflowing help text; the fix includes centered viewport scaling, text autosizing and shorter help labels. Live Unity layout at the reported resolution and after window resizing still needs visual acceptance.

@@ -6,6 +6,8 @@ namespace Igtap.Tas.Core
     {
         public static FrameInput Apply(FrameInput input, InputColumn column, bool held, float value = 0)
         {
+            if (column == InputColumn.Jump || column == InputColumn.Dash || column == InputColumn.Reset)
+            { input.ExactEdges = false; input.Press = input.Release = Buttons.None; }
             switch (column)
             {
                 case InputColumn.Up: input.Y = held ? 1 : input.Y > 0 ? 0 : input.Y; break;

@@ -13,14 +13,17 @@ namespace Igtap.Tas.Core
         public float X;
         public float Y;
         public Buttons Held;
+        public bool ExactEdges;
+        public Buttons Press, Release;
         public bool Down(Buttons button) => (Held & button) != 0;
-        public bool Pressed(Buttons button, FrameInput previous) => Down(button) && !previous.Down(button);
-        public bool Released(Buttons button, FrameInput previous) => !Down(button) && previous.Down(button);
+        public bool Pressed(Buttons button, FrameInput previous) => ExactEdges ? (Press & button) != 0 : Down(button) && !previous.Down(button);
+        public bool Released(Buttons button, FrameInput previous) => ExactEdges ? (Release & button) != 0 : !Down(button) && previous.Down(button);
     }
 
     public sealed class StateProbe
     {
         public float X, Y, VelocityX, VelocityY, MomentumX, MomentumY;
+        public float RenderX, RenderY, BodyVelocityX, BodyVelocityY;
         public bool Grounded, OnWall, Dashing, FacingRight;
         public int AirJumps, AirDashes, Cutscene;
         public string MovementHash = "";
@@ -34,11 +37,12 @@ namespace Igtap.Tas.Core
         // Null means the frame has been authored/edited and is not yet verified.
         public StateProbe Expected;
         public int FixedTicks = -1;
+        public double PuPhase = -1;
     }
 
     public sealed class Movie
     {
-        public const int CurrentVersion = 4;
+        public const int CurrentVersion = 5;
         public const int MaxFrames = 2_000_000;
         public int FormatVersion = CurrentVersion;
         public string Name = "Untitled";
@@ -54,8 +58,10 @@ namespace Igtap.Tas.Core
         public int Seed = 12345;
         public int FrameRate = 50;
         public float FixedDeltaTime = 0.02f;
+        public int TimingProtocol = FrameTiming.Protocol;
+        public double StartPuPhase;
         public int WarmupFrames = 10;
-        // An absent protocol stays invalid; only explicitly recorded protocol 3 is accepted.
+        // An absent protocol stays invalid; only explicitly recorded protocol 4 is accepted.
         public int BootstrapVersion;
         public List<int> WarmupFixedTicks = new List<int>();
         public int Rerecords;
@@ -70,10 +76,13 @@ namespace Igtap.Tas.Core
                 throw new InvalidOperationException("Invalid movie difficulty.");
             if (FormatVersion != CurrentVersion) throw new InvalidOperationException("Unsupported TAS format version.");
             if (Adapter != "igtap-movement-v1") throw new InvalidOperationException("Unsupported game adapter.");
-            if (FrameRate < 10 || FrameRate > 240 || !Finite(FixedDeltaTime) || FixedDeltaTime <= 0 || FixedDeltaTime > 0.1f)
+            FrameTiming.ValidateFps(FrameRate);
+            if (FixedDeltaTime != FrameTiming.NativePuSeconds || TimingProtocol != FrameTiming.Protocol ||
+                double.IsNaN(StartPuPhase) || StartPuPhase < 0 || StartPuPhase >= FrameTiming.PuSeconds ||
+                (StartSetup != null && StartSetup.FrameRate != FrameRate))
                 throw new InvalidOperationException("Invalid movie timing.");
             if (WarmupFrames < 1 || WarmupFrames > 600) throw new InvalidOperationException("Invalid warmup length.");
-            if (BootstrapVersion != 3) throw new InvalidOperationException("Incompatible TAS run: unsupported starting-state protocol. Record a new run with the installed version.");
+            if (BootstrapVersion != 4) throw new InvalidOperationException("Incompatible TAS run: unsupported starting-state protocol. Record a new run with the installed version.");
             if (WarmupFixedTicks == null || WarmupFixedTicks.Count > WarmupFrames || WarmupFixedTicks.Exists(n => n < 0 || n > 1000)) throw new InvalidOperationException("Invalid warmup tick schedule.");
             if (Frames == null || Frames.Count > MaxFrames) throw new InvalidOperationException("Invalid movie length.");
             ValidateProbe(StartState);
@@ -82,13 +91,16 @@ namespace Igtap.Tas.Core
                 if (frame == null || !Finite(frame.Input.X) || !Finite(frame.Input.Y) || Math.Abs(frame.Input.X) > 1 || Math.Abs(frame.Input.Y) > 1 || ((int)frame.Input.Held & ~31) != 0)
                     throw new InvalidOperationException("Invalid input frame.");
                 if (frame.FixedTicks < -1 || frame.FixedTicks > 1000) throw new InvalidOperationException("Invalid physics tick count.");
+                if ((((int)frame.Input.Press | (int)frame.Input.Release) & ~31) != 0 || double.IsNaN(frame.PuPhase) ||
+                    (frame.PuPhase != -1 && (frame.PuPhase < 0 || frame.PuPhase >= FrameTiming.PuSeconds)))
+                    throw new InvalidOperationException("Invalid frame timing or button edges.");
                 ValidateProbe(frame.Expected);
             }
         }
 
         private static void ValidateProbe(StateProbe p)
         {
-            if (p != null && (!Finite(p.X) || !Finite(p.Y) || !Finite(p.VelocityX) || !Finite(p.VelocityY) || !Finite(p.MomentumX) || !Finite(p.MomentumY)))
+            if (p != null && (!Finite(p.X) || !Finite(p.Y) || !Finite(p.RenderX) || !Finite(p.RenderY) || !Finite(p.BodyVelocityX) || !Finite(p.BodyVelocityY) || !Finite(p.VelocityX) || !Finite(p.VelocityY) || !Finite(p.MomentumX) || !Finite(p.MomentumY)))
                 throw new InvalidOperationException("Invalid state probe.");
         }
         public static bool Finite(float value) => !float.IsNaN(value) && !float.IsInfinity(value);
@@ -100,8 +112,10 @@ namespace Igtap.Tas.Core
         {
             if (expected == null) return null;
             if (actual == null) return "Player missing";
-            if (!Movie.Finite(actual.X) || !Movie.Finite(actual.Y) || !Movie.Finite(actual.VelocityX) || !Movie.Finite(actual.VelocityY) || !Movie.Finite(actual.MomentumX) || !Movie.Finite(actual.MomentumY)) return "Non-finite player state";
+            if (!Movie.Finite(actual.X) || !Movie.Finite(actual.Y) || !Movie.Finite(actual.RenderX) || !Movie.Finite(actual.RenderY) || !Movie.Finite(actual.BodyVelocityX) || !Movie.Finite(actual.BodyVelocityY) || !Movie.Finite(actual.VelocityX) || !Movie.Finite(actual.VelocityY) || !Movie.Finite(actual.MomentumX) || !Movie.Finite(actual.MomentumY)) return "Non-finite player state";
             if (Math.Abs(expected.X - actual.X) > tolerance || Math.Abs(expected.Y - actual.Y) > tolerance) return "Position differs";
+            if (Math.Abs(expected.RenderX - actual.RenderX) > tolerance || Math.Abs(expected.RenderY - actual.RenderY) > tolerance) return "Interpolated position differs";
+            if (Math.Abs(expected.BodyVelocityX - actual.BodyVelocityX) > tolerance || Math.Abs(expected.BodyVelocityY - actual.BodyVelocityY) > tolerance) return "Physics velocity differs";
             if (Math.Abs(expected.VelocityX - actual.VelocityX) > tolerance || Math.Abs(expected.VelocityY - actual.VelocityY) > tolerance) return "Velocity differs";
             if (Math.Abs(expected.MomentumX - actual.MomentumX) > tolerance || Math.Abs(expected.MomentumY - actual.MomentumY) > tolerance) return "Momentum differs";
             if (expected.Grounded != actual.Grounded || expected.OnWall != actual.OnWall || expected.Dashing != actual.Dashing || expected.FacingRight != actual.FacingRight || expected.AirJumps != actual.AirJumps || expected.AirDashes != actual.AirDashes || expected.Cutscene != actual.Cutscene) return "Movement flags/resources differ";

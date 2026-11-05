@@ -13,7 +13,7 @@ namespace Igtap.Tas
     {
         public string Id => "Tas.Studio";
         public string DisplayName => "Tas Studio";
-        public Version Version => new Version(0, 6, 1);
+        public Version Version => new Version(0, 9, 2);
         private TasSession _session;
         private GamePatches _patches;
         private LoopHooks _loop;
@@ -47,7 +47,7 @@ namespace Igtap.Tas
             _menuEntry = new TasMenuEntry(host, panel => panel.AddComponent<TasSettingsPanel>().Build(panel, _session, _launcher,
                 () => _disablePending ? "Cancel disable" : _enabled ? "Disable Tas Studio" : "Enable Tas Studio", ToggleEnabled,
                 () => _window.OpenDesktop(), () => _enabled && !_disablePending));
-            host.Log("Tas Studio loaded; " + _patches.PatchedMethods + " runtime hooks installed. Open Mods > Tas Studio to create, load or replay a run. F5 opens desktop controls.");
+            host.Log("Tas Studio loaded; " + _patches.PatchedMethods + " runtime hooks installed. Open Mods > Tas Studio to create, load or replay a run. Configure shortcuts in Mods > Tas Studio > Keybinds.");
         }
         private void ToggleEnabled()
         {
@@ -63,7 +63,7 @@ namespace Igtap.Tas
             try
             {
                 _patches = new GamePatches(); _patches.Install(_session);
-                _loop = new LoopHooks(Early, End);
+                _loop = new LoopHooks(Early, End, _session.SampleFrameInput);
                 _enabled = true; _disablePending = false;
                 _ui.SetActive(true);
             }

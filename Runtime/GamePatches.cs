@@ -31,18 +31,19 @@ namespace Igtap.Tas.Runtime
                         (method.Name == "Update" || method.Name == "FixedUpdate" || method.Name == "LateUpdate");
                     bool iterator = typeof(IEnumerator).IsAssignableFrom(type) && method.Name == "MoveNext" && method.ReturnType == typeof(bool);
                     bool zoneIterator = iterator && BelongsTo(type, typeof(ZoneLoader));
-                    bool clock = UsesUnscaledClock(method);
+                    bool clock = UsesClockOrInput(method);
                     // Jump/respawn helpers schedule timers outside Update too.
                     bool movement = type == typeof(Movement);
                     bool save = type == typeof(Saveloader) && (method.Name == "autosave" || method.Name == "manualSave");
                     save |= typeof(SaveableObject).IsAssignableFrom(type) && method.Name == "save";
                     bool load = typeof(SaveableObject).IsAssignableFrom(type) && method.Name == "load";
                     bool playerStart = type == typeof(Movement) && method.Name == "Start";
-                    if (!tick && !iterator && !clock && !movement && !save && !load && !playerStart) continue;
-                    var prefix = save ? nameof(AllowSave) : load ? nameof(AllowLoad) : playerStart ? nameof(PreparePlayerStart) : zoneIterator ? nameof(AllowZoneCoroutine) : iterator ? nameof(AllowCoroutine) : tick ? nameof(AllowTick) : null;
+                    bool footstep = type == typeof(PlayerAnimationEventProxy) && method.Name == "RelayFootstep";
+                    if (!tick && !iterator && !clock && !movement && !save && !load && !playerStart && !footstep) continue;
+                    var prefix = save ? nameof(AllowSave) : load ? nameof(AllowLoad) : playerStart ? nameof(PreparePlayerStart) : footstep ? nameof(AllowAnimationEvent) : zoneIterator ? nameof(AllowZoneCoroutine) : iterator ? nameof(AllowCoroutine) : tick ? nameof(AllowTick) : null;
                     _harmony.Patch(method,
                         prefix: prefix == null ? null : new HarmonyMethod(typeof(GamePatches), prefix),
-                        postfix: zoneIterator ? new HarmonyMethod(typeof(GamePatches), nameof(ZoneCoroutineAdvanced)) : playerStart ? new HarmonyMethod(typeof(GamePatches), nameof(PlayerStarted)) : null,
+                        postfix: zoneIterator ? new HarmonyMethod(typeof(GamePatches), nameof(ZoneCoroutineAdvanced)) : playerStart ? new HarmonyMethod(typeof(GamePatches), nameof(PlayerStarted)) : movement && !method.IsStatic ? new HarmonyMethod(typeof(GamePatches), nameof(MovementCalled)) : null,
                         transpiler: zoneIterator ? new HarmonyMethod(typeof(GamePatches), nameof(RewriteZoneWaits)) : clock || movement ? new HarmonyMethod(typeof(GamePatches), nameof(RewriteCalls)) : null);
                     PatchedMethods++;
                 }
@@ -68,6 +69,10 @@ namespace Igtap.Tas.Runtime
             return false;
         }
         private static bool AllowSave() => Session == null || !Session.Active;
+        // Animator initialization can emit footstep events even at timeScale=0.
+        // They must not advance the world's RNG while loading or editor-paused.
+        // During movie frames the original sound and random draws are preserved.
+        private static bool AllowAnimationEvent() => Session == null || !Session.Active || !Session.Frozen;
         private static bool AllowLoad() => Session == null || !Session.SuppressSavedProgressLoad;
         private static void PreparePlayerStart(Movement __instance)
         {
@@ -131,13 +136,13 @@ namespace Igtap.Tas.Runtime
                     {
                         if (method.Name == "WasPressedThisFrame") replacement = nameof(Pressed);
                         if (method.Name == "WasReleasedThisFrame") replacement = nameof(Released);
+                        if (method.Name == "IsPressed") replacement = nameof(Held);
                         if (method.Name == "ReadValue" && method.IsGenericMethod && method.GetGenericArguments()[0] == typeof(Vector2)) replacement = nameof(Move);
                     }
                     if (method.DeclaringType == typeof(MonoBehaviour))
                     {
                         if (method.Name == "Invoke") replacement = nameof(InvokeMovement);
                         if (method.Name == "CancelInvoke") replacement = method.GetParameters().Length == 0 ? nameof(CancelAllMovement) : nameof(CancelMovement);
-                        if (method.Name == "IsInvoking") replacement = method.GetParameters().Length == 0 ? nameof(IsAnyMovementInvoking) : nameof(IsMovementInvoking);
                     }
                     if (replacement != null)
                     {
@@ -149,7 +154,7 @@ namespace Igtap.Tas.Runtime
                 yield return instruction;
             }
         }
-        private static bool UsesUnscaledClock(MethodInfo method)
+        private static bool UsesClockOrInput(MethodInfo method)
         {
             // Parse operand lengths so an integer/string token cannot look like a call.
             // Avoid Harmony's optional ILGenerator API: the shipped Mono build uses
@@ -163,6 +168,7 @@ namespace Igtap.Tas.Runtime
                 if (op == OpCodes.Call || op == OpCodes.Callvirt)
                 {
                     var target = method.Module.ResolveMethod(BitConverter.ToInt32(il, offset));
+                    if (target.DeclaringType == typeof(InputAction)) return true;
                     if (target.DeclaringType == typeof(Time) && (target.Name == "get_unscaledDeltaTime" || target.Name == "get_unscaledTime" || target.Name == "get_unscaledTimeAsDouble")) return true;
                 }
                 switch (op.OperandType)
@@ -185,12 +191,11 @@ namespace Igtap.Tas.Runtime
         private static void InvokeMovement(MonoBehaviour target, string method, float delay)
         {
             if (!OwnsTimers(target)) { target.Invoke(method, delay); return; }
-            var callback = AccessTools.Method(target.GetType(), method, Type.EmptyTypes)
-                ?? throw new MissingMethodException(target.GetType().Name, method);
-            Session.MovementTimers.Schedule(target, method, delay, () => {
-                if (target != null) callback.Invoke(target, null);
-            });
+            target.Invoke(method, delay);
+            Session.MovementTimers.ObserveNative(target, method, delay, Session.ScaledNow);
         }
+        private static void MovementCalled(Movement __instance, MethodBase __originalMethod)
+        { if (OwnsTimers(__instance)) Session.MovementTimers.NativeCalled(__instance, __originalMethod.Name); }
         private static void CancelMovement(MonoBehaviour target, string method)
         {
             if (OwnsTimers(target)) Session.MovementTimers.Cancel(target, method);
@@ -201,10 +206,6 @@ namespace Igtap.Tas.Runtime
             if (OwnsTimers(target)) Session.MovementTimers.Cancel(target);
             target.CancelInvoke();
         }
-        private static bool IsMovementInvoking(MonoBehaviour target, string method) => OwnsTimers(target)
-            ? Session.MovementTimers.Contains(target, method) : target.IsInvoking(method);
-        private static bool IsAnyMovementInvoking(MonoBehaviour target) => OwnsTimers(target)
-            ? Session.MovementTimers.Contains(target) : target.IsInvoking();
         private static Dictionary<ushort, OpCode> BuildOpcodes()
         {
             var result = new Dictionary<ushort, OpCode>();
@@ -212,9 +213,15 @@ namespace Igtap.Tas.Runtime
                 if (field.GetValue(null) is OpCode op) result[unchecked((ushort)op.Value)] = op;
             return result;
         }
-        public static float UnscaledDelta() => Session != null && Session.Active ? (Session.Frozen ? 0 : Session.StepSeconds) : Time.unscaledDeltaTime;
+        public static float UnscaledDelta() => Session != null && Session.Active ? Session.UnscaledDelta : Time.unscaledDeltaTime;
         public static float UnscaledTime() => (float)UnscaledTimeDouble();
-        public static double UnscaledTimeDouble() => Session != null && Session.Active ? Session.LogicalTime : Time.unscaledTimeAsDouble;
+        public static double UnscaledTimeDouble() => Session != null && Session.Active ? Session.UnscaledNow : Time.unscaledTimeAsDouble;
+        public static bool Held(InputAction action)
+        {
+            var s = Session;
+            var button = s != null && s.Active ? s.Adapter.ButtonFor(action) : Core.Buttons.None;
+            return button != Core.Buttons.None ? !s.Frozen && s.CurrentInput.Down(button) : action.IsPressed();
+        }
         public static Vector2 Move(InputAction action) => Session != null && Session.Active && Session.Adapter.IsMove(action)
             ? new Vector2(Session.CurrentInput.X, Session.CurrentInput.Y) : action.ReadValue<Vector2>();
         public static bool Pressed(InputAction action)

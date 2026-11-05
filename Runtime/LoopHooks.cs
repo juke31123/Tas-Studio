@@ -10,13 +10,30 @@ namespace Igtap.Tas.Runtime
     {
         private sealed class TasEarly { }
         private sealed class TasEnd { }
-        public LoopHooks(Action early, Action end)
+        private sealed class TasInput { }
+        public LoopHooks(Action early, Action end, Action input)
         {
             var loop = PlayerLoop.GetCurrentPlayerLoop();
             if (!Append(ref loop, typeof(UnityEngine.PlayerLoop.EarlyUpdate), typeof(TasEarly), early.Invoke) ||
+                !Before(ref loop, typeof(UnityEngine.PlayerLoop.Update.ScriptRunBehaviourUpdate), typeof(TasInput), input.Invoke) ||
                 !Append(ref loop, typeof(UnityEngine.PlayerLoop.PostLateUpdate), typeof(TasEnd), end.Invoke))
                 throw new NotSupportedException("Unity PlayerLoop phases were not found.");
             PlayerLoop.SetPlayerLoop(loop);
+        }
+        private static bool Before(ref PlayerLoopSystem node, Type target, Type marker, PlayerLoopSystem.UpdateFunction callback)
+        {
+            if (node.subSystemList == null) return false;
+            for (int i = 0; i < node.subSystemList.Length; i++)
+            {
+                if (node.subSystemList[i].type == target)
+                {
+                    var children = new List<PlayerLoopSystem>(node.subSystemList);
+                    children.Insert(i, new PlayerLoopSystem { type = marker, updateDelegate = callback });
+                    node.subSystemList = children.ToArray(); return true;
+                }
+                if (Before(ref node.subSystemList[i], target, marker, callback)) return true;
+            }
+            return false;
         }
         private static bool Append(ref PlayerLoopSystem node, Type parent, Type marker, PlayerLoopSystem.UpdateFunction callback)
         {
@@ -36,7 +53,7 @@ namespace Igtap.Tas.Runtime
             var children = new List<PlayerLoopSystem>();
             foreach (var child in node.subSystemList)
             {
-                if (child.type == typeof(TasEarly) || child.type == typeof(TasEnd)) continue;
+                if (child.type == typeof(TasEarly) || child.type == typeof(TasEnd) || child.type == typeof(TasInput)) continue;
                 var copy = child; Remove(ref copy); children.Add(copy);
             }
             node.subSystemList = children.ToArray();

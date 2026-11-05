@@ -1,4 +1,38 @@
-# Native Studio windows (0.6.1)
+# Native Studio windows (0.9.1)
+
+**Mods > Tas Studio > Keybinds** configures open-editors, pause/resume, step,
+stop/reload, savestates and stats. Click a binding and press F1-F12, A-Z or 0-9;
+Escape cancels and Delete unbinds. Changes persist immediately in `data/keybinds.json`,
+with a backup when replacing an existing file. Restore defaults resets all six.
+Duplicates and unsupported keys are rejected; corrupt settings fall back to defaults
+with an error shown in the menu, preserving the file until a successful explicit save.
+The shortcuts listed below are defaults. Both desktop windows show current bindings.
+
+`Core/Keybinds.cs` stores platform-independent settings; `Runtime/TasHotkeys.cs`
+maps these to Unity Input System keys. The desktop receives detached copies through
+its existing snapshot channel and maps them to local Win32 key events. No global
+keyboard hooks are installed. Modified keys, repeated native keydown events, desktop
+text entry and the open in-game settings page suppress TAS shortcuts. The game also
+ignores shortcuts when unfocused to avoid duplicate commands from the desktop.
+Ctrl+S, Ctrl+Z and other frame-editing keys retain their existing behavior. Game
+movement bindings are unchanged; choose TAS keys that do not overlap game controls.
+
+The external windows adapt the visual design of TatsuyaTas's in-game UI: dark
+rounded cards, teal accents, muted labels, aligned values, status badges and a
+progress strip. Recording uses red, paused state amber, playback/completion green,
+and idle/loading blue. Unsaved frame edits are labelled explicitly. PU rows retain
+their red backgrounds and all cells remain directly editable.
+
+`UI/NativeTheme.cs` owns the shared palette, cached GDI brushes/fonts and owner-drawn
+controls. Rendering stays on the native UI thread. Native buttons retain keyboard
+focus/activation; the timeline retains its offscreen buffer and unchanged-grid
+checks. Stats use separate columns rather than spaces in one text block. At smaller
+window sizes secondary help is hidden and long prediction explanations ellipsize.
+The main window minimum remains 820 by 680 logical pixels.
+
+Visual reference: local `tests/TatsuyaTas/Plugin.cs`, `UiStyles`, `UiRow`, `UiBox`
+and `OnGUI`. This is a desktop adaptation; its simulation and solver are not used.
+Native owner drawing follows [Microsoft's DRAWITEMSTRUCT contract](https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-drawitemstruct).
 
 The in-game settings panel scales to fit within 90% of the visible viewport width and 88% of its height, including the title and Close button. It centers in the camera viewport/safe area and refits when window or canvas scaling changes. Text wraps or shrinks within its controls.
 
@@ -7,6 +41,7 @@ Start in the game's **Settings / Mods > Tas Studio** page. It offers Create New 
 After startup loading and warmup complete, the recording or replay pauses at frame zero and opens two desktop windows: Studio and Frame Editor. Both run inside IGTAP on a dedicated native UI thread. There is no companion executable, web server or Desktop Runtime dependency. No floating in-game editor, savestate/stats windows or TAS banner remain.
 
 ## Controls
+
 
 - **Frame Editor:** click/drag input cells or double-click X/Y for inline analog values. Save edits commits the draft and starts any necessary rebuild. See [FRAME-EDITOR.md](FRAME-EDITOR.md).
 - **Run:** pause/resume, step, stop/reload, save, and speed from 0.1 to 1.0 (dot/comma accepted). Record inputs from frame list consumes planned rows during recording.

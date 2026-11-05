@@ -14,6 +14,7 @@ namespace Igtap.Tas.Core
             public string Method;
             public double Due;
             public Action Callback;
+            public bool Native;
         }
         private readonly List<Pending> _pending = new List<Pending>();
         public double Time { get; private set; }
@@ -24,6 +25,19 @@ namespace Igtap.Tas.Core
             _pending.Add(new Pending { Owner = owner, Method = method, Due = Time + Math.Max(0, delay), Callback = callback });
         }
         public void Cancel(object owner, string method = null) => _pending.RemoveAll(p => ReferenceEquals(p.Owner, owner) && (method == null || p.Method == method));
+        // Observe Unity-owned Invoke timers without executing or expiring them.
+        // Their callbacks stay in Unity's original player-loop phase.
+        public void ObserveNative(object owner, string method, double delay, double now)
+        {
+            if (owner == null || string.IsNullOrEmpty(method) || double.IsNaN(delay) || double.IsInfinity(delay) || double.IsNaN(now) || double.IsInfinity(now))
+                throw new ArgumentException("Invalid native timer observation.");
+            _pending.Add(new Pending { Owner = owner, Method = method, Due = now + Math.Max(0, delay), Native = true });
+        }
+        public void NativeCalled(object owner, string method)
+        {
+            var pending = _pending.FirstOrDefault(p => p.Native && ReferenceEquals(p.Owner, owner) && p.Method == method);
+            if (pending != null) _pending.Remove(pending);
+        }
         public bool Contains(object owner, string method = null) => _pending.Exists(p => ReferenceEquals(p.Owner, owner) && (method == null || p.Method == method));
         public double Remaining(object owner, string method)
         {
@@ -39,7 +53,7 @@ namespace Igtap.Tas.Core
             Time += scaledSeconds;
             // Stable ordering for equal deadlines. A snapshot prevents a callback
             // scheduling itself at zero delay from looping in this same frame.
-            var due = _pending.Where(p => p.Due <= Time + 1e-7).OrderBy(p => p.Due).ToArray();
+            var due = _pending.Where(p => !p.Native && p.Due <= Time + 1e-7).OrderBy(p => p.Due).ToArray();
             foreach (var timer in due)
                 if (_pending.Remove(timer)) timer.Callback(); // An earlier callback may cancel it.
         }

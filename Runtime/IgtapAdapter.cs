@@ -28,7 +28,6 @@ namespace Igtap.Tas.Runtime
         };
         private readonly FieldInfo[] _probeFields;
         private readonly InputAction[] _actions = new InputAction[6];
-        private readonly Dictionary<Rigidbody2D, RigidbodyInterpolation2D> _interpolation = new Dictionary<Rigidbody2D, RigidbodyInterpolation2D>();
         private Rigidbody2D _body;
         public Movement Player { get; private set; }
         public bool IsAlive => Player != null && Player.isActiveAndEnabled;
@@ -87,20 +86,12 @@ namespace Igtap.Tas.Runtime
         }
         public void PrepareSimulation()
         {
-            // Game raycasts read transforms too. Disable render interpolation for
-            // scene bodies so the solver and movement logic see the same state.
-            foreach (var body in UnityEngine.Object.FindObjectsByType<Rigidbody2D>(FindObjectsSortMode.None))
-            {
-                if (_interpolation.ContainsKey(body)) continue;
-                _interpolation[body] = body.interpolation;
-                body.interpolation = RigidbodyInterpolation2D.None;
-            }
+            // Preserve the scene's interpolation. Movement reads its interpolated
+            // transform for jumps, wall contacts and frame-based step-ups.
             Physics2D.SyncTransforms();
         }
         public void ReleaseSimulation()
         {
-            foreach (var pair in _interpolation) if (pair.Key != null) pair.Key.interpolation = pair.Value;
-            _interpolation.Clear();
         }
         public object Diagnostics()
         {
@@ -124,8 +115,13 @@ namespace Igtap.Tas.Runtime
         public FrameInput ReadPhysicalInput()
         {
             var move = _actions[0].ReadValue<Vector2>();
-            var result = new FrameInput { X = move.x, Y = move.y };
-            for (int i = 1; i < _actions.Length; i++) if (_actions[i].IsPressed()) result.Held |= ActionButtons[i];
+            var result = new FrameInput { X = move.x, Y = move.y, ExactEdges = true };
+            for (int i = 1; i < _actions.Length; i++)
+            {
+                if (_actions[i].IsPressed()) result.Held |= ActionButtons[i];
+                if (_actions[i].WasPressedThisFrame()) result.Press |= ActionButtons[i];
+                if (_actions[i].WasReleasedThisFrame()) result.Release |= ActionButtons[i];
+            }
             return result;
         }
         public StateProbe Probe()
@@ -145,6 +141,8 @@ namespace Igtap.Tas.Runtime
             }
             return new StateProbe {
                 X = _body.position.x, Y = _body.position.y,
+                RenderX = p.transform.position.x, RenderY = p.transform.position.y,
+                BodyVelocityX = _body.linearVelocity.x, BodyVelocityY = _body.linearVelocity.y,
                 VelocityX = p.Velocity.x, VelocityY = p.Velocity.y,
                 MomentumX = p.momentum.x, MomentumY = p.momentum.y,
                 Grounded = p.onGround, OnWall = p.OnWall, Dashing = p.dashActive, FacingRight = p.facingRight,

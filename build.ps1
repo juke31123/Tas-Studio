@@ -45,6 +45,8 @@ if (!(Test-Path -LiteralPath $license)) { throw 'Harmony license is required for
 Copy-Item -LiteralPath $license -Destination (Join-Path $output 'Harmony-LICENSE.txt')
 $docs = Join-Path $output 'docs'
 New-Item -ItemType Directory -Force $docs | Out-Null
+$retiredDoc = Join-Path $docs 'HITBOXES.md'
+if (Test-Path -LiteralPath $retiredDoc) { Remove-Item -LiteralPath $retiredDoc }
 Get-ChildItem -LiteralPath (Join-Path $root 'docs') -Filter '*.md' | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination $docs
     $packageFiles += 'docs/' + $_.Name

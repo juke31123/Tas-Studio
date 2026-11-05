@@ -51,7 +51,7 @@ namespace Igtap.Tas.Runtime
                 float fixedSeconds = Time.fixedDeltaTime;
                 // A frame can contain zero, one or several physics ticks. Use the
                 // current accumulator phase rather than silently assuming one.
-                double phase = Time.timeAsDouble - Time.fixedTimeAsDouble;
+                double phase = session.Active ? session.PuPhase : Time.timeAsDouble - Time.fixedTimeAsDouble;
                 float remainder = (float)Math.Max(0, Math.Min(phase, fixedSeconds * .999999));
                 if (session.Mode == SessionMode.Complete || session.Mode == SessionMode.Desync)
                     Prediction = new MotionPrediction(null, "The run is stopped at completion or desync.", 0, 0);

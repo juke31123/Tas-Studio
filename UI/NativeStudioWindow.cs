@@ -7,6 +7,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using Igtap.Tas.DesktopModel;
+using Igtap.Tas.Core;
 using N = Igtap.Tas.UI.NativeMethods;
 
 namespace Igtap.Tas.UI
@@ -26,6 +27,7 @@ namespace Igtap.Tas.UI
         private readonly List<Control> _layout = new List<Control>();
         private readonly Dictionary<int, bool> _availability = new Dictionary<int, bool>();
         private IntPtr _background, _normalFont, _monoFont;
+        private readonly NativeTheme _theme = new NativeTheme();
         private float _scale = 1;
         private int _tab;
         private Snapshot _shown;
@@ -34,7 +36,7 @@ namespace Igtap.Tas.UI
         private NativeFrameEditor _editor;
         internal IntPtr EditorHandle => _editor?.Handle ?? IntPtr.Zero;
         private const uint Child = 0x50000000, TabStop = 0x10000;
-        private const uint Back = 0x26170C, Fore = 0xF2E6D9;
+        private const uint Back = NativeTheme.Back, Fore = NativeTheme.Text;
         private sealed class Control { public int Id, X, Y, Width, Height, Page; }
         internal IntPtr Handle => Interlocked.CompareExchange(ref _handle, IntPtr.Zero, IntPtr.Zero);
         internal bool ThreadAlive => _thread?.IsAlive == true;
@@ -62,15 +64,17 @@ namespace Igtap.Tas.UI
             {
                 // Set DPI awareness only for this UI thread, never the game process.
                 dpi = N.SetThreadDpiAwarenessContext(new IntPtr(-4));
+                _theme.Scale(1);
                 _background = N.CreateSolidBrush(Back);
                 var wc = new N.WindowClass { Size = (uint)Marshal.SizeOf<N.WindowClass>(), Procedure = Marshal.GetFunctionPointerForDelegate(_procedure),
                     Instance = instance, Cursor = N.LoadCursor(IntPtr.Zero, new IntPtr(32512)), Background = _background, Name = className };
                 if (N.RegisterClassEx(ref wc) == 0) throw new Win32Exception(Marshal.GetLastWin32Error());
                 registered = true;
-                IntPtr hwnd = N.CreateWindowEx(0, className, "Tas Studio 0.6.1 - in-game process", 0x02CF0000,
+                IntPtr hwnd = N.CreateWindowEx(0, className, "Tas Studio 0.9.2 - in-game process", 0x02CF0000,
                     _visible ? unchecked((int)0x80000000) : -30000, _visible ? unchecked((int)0x80000000) : -30000,
                     980, 850, IntPtr.Zero, IntPtr.Zero, instance, IntPtr.Zero);
                 if (hwnd == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+                NativeTheme.DarkTitle(hwnd);
                 Interlocked.Exchange(ref _handle, hwnd);
                 _scale = Math.Max(1, N.GetDpiForWindow(hwnd) / 96f);
                 Build(); Fonts(); Layout();
@@ -83,12 +87,24 @@ namespace Igtap.Tas.UI
                 while ((result = N.GetMessage(out var message, IntPtr.Zero, 0, 0)) > 0)
                 {
                     if (_editor != null && _editor.ProcessKey(ref message)) continue;
-                    // F6-F8 are local to this window, not global hotkeys.
-                    if (message.Id == 0x100 && message.WParam.ToUInt64() >= 0x75 && message.WParam.ToUInt64() <= 0x77)
+                    // Local shortcuts only. Ignore repeats, editor chords and text entry.
+                    if (message.Id == 0x100 || message.Id == 0x104)
                     {
-                        try { Click(message.WParam.ToUInt64() == 0x75 ? 100 : message.WParam.ToUInt64() == 0x76 ? 101 : 102); }
+                        var classNameBuffer = new StringBuilder(64);
+                        N.GetClassName(message.Hwnd, classNameBuffer, classNameBuffer.Capacity);
+                        var bindings = _channel.Latest?.Bindings ?? new Keybinds();
+                        int shortcut = bindings.MatchVirtualKey((int)message.WParam.ToUInt64(),
+                            N.GetKeyState(16) < 0 || N.GetKeyState(17) < 0 || N.GetKeyState(18) < 0 || N.GetKeyState(0x5b) < 0 || N.GetKeyState(0x5c) < 0,
+                            classNameBuffer.ToString().Equals("Edit", StringComparison.OrdinalIgnoreCase), (message.LParam.ToInt64() & (1L << 30)) != 0);
+                        try
+                        {
+                            if (shortcut == (int)TasShortcut.Pause) Click(100);
+                            else if (shortcut == (int)TasShortcut.Step) Click(101);
+                            else if (shortcut == (int)TasShortcut.Stop) Click(102);
+                            else if (shortcut >= 0) { _tab = shortcut == (int)TasShortcut.Savestates ? 3 : 0; Layout(); _editor?.Open(); N.ShowWindow(hwnd, 5); N.SetForegroundWindow(hwnd); }
+                        }
                         catch (Exception e) { _localError = e.Message; }
-                        continue;
+                        if (shortcut >= 0) continue;
                     }
                     if (!N.IsDialogMessage(hwnd, ref message)) { N.TranslateMessage(ref message); N.DispatchMessage(ref message); }
                 }
@@ -104,8 +120,7 @@ namespace Igtap.Tas.UI
                 _channel.IsOpen = _channel.Starting = false; _channel.Clear();
                 _controls.Clear(); _layout.Clear(); _availability.Clear(); _shown = null; _name = _localError = "";
                 _movies = _states = Array.Empty<string>();
-                if (_normalFont != IntPtr.Zero) N.DeleteObject(_normalFont);
-                if (_monoFont != IntPtr.Zero) N.DeleteObject(_monoFont);
+                _theme.Dispose();
                 if (registered) N.UnregisterClass(className, instance);
                 if (_background != IntPtr.Zero) N.DeleteObject(_background);
                 _normalFont = _monoFont = _background = IntPtr.Zero;
@@ -131,12 +146,39 @@ namespace Igtap.Tas.UI
                         N.MoveWindow(hwnd, rect.Left, rect.Top, rect.Right - rect.Left, rect.Bottom - rect.Top, true);
                         Fonts(); Layout(); return IntPtr.Zero;
                     case 0x113: Refresh(); _editor?.Refresh(); return IntPtr.Zero; // WM_TIMER
+                    case 0xF: PaintPanels(hwnd); return IntPtr.Zero;
+                    case 0x2B:
+                        var item = Marshal.PtrToStructure<N.DrawItem>(lp);
+                        if (item.Type == 4) _theme.Button(item, item.Id == 100 || item.Id == 108 || item.Id == 403,
+                            item.Id == 10 && _tab == 0 || item.Id == 11 && _tab == 3, item.Id == 102);
+                        else if (item.Id == 1) _theme.Header(item, _shown, "TAS STUDIO");
+                        else if (item.Id == 21) _theme.Stats(item, _shown);
+                        else if (item.Id == 23)
+                        {
+                            var area = item.Rect; N.FillRect(item.Dc, ref area, _theme.Brush(NativeTheme.Panel));
+                            _theme.Label(item.Dc, area, Text(23), NativeTheme.Muted, _normalFont,
+                                area.Bottom - area.Top < 40 * _scale ? 0x8824u : 0x8810u);
+                        }
+                        else if (item.Id == 2)
+                        {
+                            var area = item.Rect; N.FillRect(item.Dc, ref area, _theme.Brush(Back));
+                            _theme.Box(item.Dc, area, NativeTheme.Panel);
+                            var stripe = area; stripe.Right = stripe.Left + (int)(4 * _scale);
+                            stripe.Top += (int)(8 * _scale); stripe.Bottom -= (int)(8 * _scale);
+                            _theme.Box(item.Dc, stripe, NativeTheme.Amber, 4);
+                            area.Left += (int)(14 * _scale); area.Right -= (int)(14 * _scale);
+                            area.Top += (int)(8 * _scale); area.Bottom -= (int)(8 * _scale);
+                            _theme.Label(item.Dc, area, Text(2), NativeTheme.Muted, _normalFont, 0x8810);
+                        }
+                        return new IntPtr(1);
                     case 0x111:
                         int id = (int)(wp.ToInt64() & 0xffff), notification = (int)((wp.ToInt64() >> 16) & 0xffff);
                         if (notification == 0) Click(id);
                         return IntPtr.Zero;
-                    case 0x133: case 0x134: case 0x138: // edit/listbox/static colors
-                        N.SetTextColor(wp, Fore); N.SetBkColor(wp, Back); return _background;
+                    case 0x133: case 0x134: case 0x135: case 0x138:
+                        uint surface = message == 0x133 || message == 0x134 ? NativeTheme.Input : NativeTheme.Panel;
+                        N.SetTextColor(wp, message == 0x138 ? NativeTheme.Muted : Fore); N.SetBkColor(wp, surface);
+                        return _theme.Brush(surface);
                     case 0x8001: if (_visible) { N.ShowWindow(hwnd, 9); N.SetForegroundWindow(hwnd); } return IntPtr.Zero;
                 }
             }
@@ -146,10 +188,13 @@ namespace Igtap.Tas.UI
         }
         private void Add(int id, string kind, string text, int x, int y, int w, int h, int page = -1, uint style = 0)
         {
+            if (kind == "BUTTON" && (style & 15) == 0) style |= 11; // BS_OWNERDRAW; native keyboard/click behavior.
+            if (kind == "STATIC" && (id == 1 || id == 2 || id == 21 || id == 23)) style |= 13;
             IntPtr child = N.CreateWindowEx(0, kind, text, Child | style, 0, 0, 1, 1, Handle, new IntPtr(id), N.GetModuleHandle(null), IntPtr.Zero);
             if (child == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
             _controls.Add(id, child); _layout.Add(new Control { Id = id, X = x, Y = y, Width = w, Height = h, Page = page });
             if (kind == "EDIT") N.SendMessage(child, 0xC5, new IntPtr(60), IntPtr.Zero);
+            if (kind == "BUTTON" && (style & 15) == 3) N.SetWindowTheme(child, "", "");
         }
         private void Label(int id, string text, int y, int page, int height = 24) => Add(id, "STATIC", text, 0, y, 320, height, page);
         private void Button(int id, string text, int y, int page) => Add(id, "BUTTON", text, 0, y, 320, 30, page, TabStop);
@@ -165,43 +210,58 @@ namespace Igtap.Tas.UI
             Add(21, "STATIC", "Waiting for player...", 0, 0, 1, 1);
             Add(22, "STATIC", "", 0, 0, 1, 1);
             Add(23, "STATIC", "", 0, 0, 1, 1);
-            Button(100, "F6  Pause / Resume", 0, 0); Button(101, "F7  Step one frame", 36, 0); Button(102, "F8  Stop + reload", 72, 0);
-            Label(103, "Speed (0.1 to 1.0; dot or comma)", 112, 0); Edit(104, "1", 138, 0, 0, 110);
-            Add(105, "BUTTON", "Apply speed", 122, 138, 198, 28, 0, TabStop);
-            Label(106, "TAS filename", 176, 0); Edit(107, "my-run", 202, 0); Button(108, "Save movie", 238, 0);
-            Label(114, "F5 reopens the desktop windows.\r\nClosing this window pauses an advancing run.\r\nCreate/load/replay: in-game Mods > Tas Studio.", 330, 0, 95);
-            Button(115, "Open frame editor", 440, 0);
-            Check(116, "Record inputs from frame list", 485, 0);
+            Add(100, "BUTTON", "Pause / Run", 0, 0, 154, 32, 0, TabStop);
+            Add(101, "BUTTON", "Step frame", 166, 0, 154, 32, 0, TabStop);
+            Button(102, "Stop + reload", 40, 0);
+            Label(103, "Speed (0.1 to 1.0; dot or comma)", 82, 0); Edit(104, "1", 108, 0, 0, 110);
+            Add(105, "BUTTON", "Apply speed", 122, 108, 198, 28, 0, TabStop);
+            Label(106, "TAS filename", 150, 0); Edit(107, "my-run", 176, 0); Button(108, "Save movie", 212, 0);
+            Label(114, "Closing this window pauses an advancing run.\r\nCreate/load/replay: in-game Mods > Tas Studio.", 370, 0, 85);
+            Button(115, "Open frame editor", 256, 0);
+            Check(116, "Record inputs from frame list", 298, 0);
             Label(400, "SAVESTATES / paused recording", 0, 3); Label(401, "State name", 38, 3); Edit(402, "checkpoint-1", 64, 3);
             Button(403, "Save current state", 104, 3); Combo(404, 156, 3); Button(405, "Load selected state", 196, 3);
             Label(406, "Loading reconstructs the saved frame by replay,\r\nthen pauses recording. This is not an instant\r\nmemory restore.", 244, 3, 85);
         }
         private void Fonts()
         {
-            IntPtr oldNormal = _normalFont, oldMono = _monoFont;
-            _normalFont = N.CreateFont(-(int)(15 * _scale), 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 5, 0, "Segoe UI");
-            _monoFont = N.CreateFont(-(int)(14 * _scale), 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 5, 0, "Consolas");
+            _theme.Scale(_scale); _normalFont = _theme.Normal; _monoFont = _theme.Mono;
             foreach (var control in _controls) N.SendMessage(control.Value, 0x30, control.Key == 3 || control.Key == 4 || control.Key == 21 ? _monoFont : _normalFont, new IntPtr(1));
-            if (oldNormal != IntPtr.Zero) N.DeleteObject(oldNormal); if (oldMono != IntPtr.Zero) N.DeleteObject(oldMono);
         }
         private void Layout()
         {
             if (Handle == IntPtr.Zero || _controls.Count == 0) return;
             N.GetClientRect(Handle, out var r); int width = (int)(r.Right / _scale), height = (int)(r.Bottom / _scale);
-            int middle = (width - 48) / 2, mx = 16, rx = mx + middle + 16;
-            float vertical = Math.Max(.6f, Math.Min(1, (height - 200) / 640f));
-            Move(1, 16, 16, width - 32, 54); Move(2, 16, height - 54, width - 32, 48);
-            for (int i = 0; i < 2; i++) Move(10 + i, mx + i * (middle / 2), 86, middle / 2 - 3, 30);
-            Move(20, rx, 86, width - rx - 16, 34); Move(21, rx, 130, width - rx - 16, 230);
-            Move(22, rx, 372, width - rx - 16, 62); Move(23, rx, 446, width - rx - 16, height - 500);
+            int middle = (width - 96) * 44 / 100, mx = 32, rx = mx + middle + 48;
+            bool compact = height < 740;
+            Move(1, 16, 16, width - 32, 124); Move(2, 16, height - 68, width - 32, 52);
+            for (int i = 0; i < 2; i++) Move(10 + i, mx + i * (middle / 2), 170, middle / 2 - 4, 32);
+            int tableHeight = Math.Max(242, Math.Min(320, height - 480));
+            Move(20, rx, 170, width - rx - 32, 30); Move(21, rx, 218, width - rx - 32, tableHeight);
+            Move(22, rx, 234 + tableHeight, width - rx - 32, compact ? 44 : 66);
+            Move(23, rx, (compact ? 282 : 310) + tableHeight, width - rx - 32, Math.Max(22, height - tableHeight - 398));
             foreach (var c in _layout.Where(c => c.Page >= 0))
             {
-                Move(c.Id, mx + c.X * middle / 320, 130 + (int)(c.Y * vertical), c.Width * middle / 320,
-                    c.Height > 100 ? c.Height : Math.Max(20, (int)(c.Height * vertical)));
-                N.ShowWindow(_controls[c.Id], c.Page == _tab ? 5 : 0);
+                Move(c.Id, mx + c.X * middle / 320, 218 + c.Y, c.Width * middle / 320, c.Height);
+                N.ShowWindow(_controls[c.Id], c.Page == _tab && !(compact && c.Id == 114) ? 5 : 0);
             }
+            if (_shown != null) Details(_shown);
             N.InvalidateRect(Handle, IntPtr.Zero, true);
         }
+        private void PaintPanels(IntPtr hwnd)
+        {
+            var dc = N.BeginPaint(hwnd, out var paint);
+            try
+            {
+                N.GetClientRect(hwnd, out var r); N.FillRect(dc, ref r, _background);
+                int width = (int)(r.Right / _scale), height = (int)(r.Bottom / _scale);
+                int middle = (width - 96) * 44 / 100;
+                _theme.Box(dc, PanelRect(16, 154, middle + 32, height - 238), NativeTheme.Panel, 14);
+                _theme.Box(dc, PanelRect(middle + 64, 154, width - middle - 80, height - 238), NativeTheme.Panel, 14);
+            }
+            finally { N.EndPaint(hwnd, ref paint); }
+        }
+        private N.Rect PanelRect(int x, int y, int w, int h) => new N.Rect { Left = (int)(x * _scale), Top = (int)(y * _scale), Right = (int)((x + w) * _scale), Bottom = (int)((y + h) * _scale) };
         private void Move(int id, int x, int y, int w, int h) { if (_controls.TryGetValue(id, out var c)) N.MoveWindow(c, (int)(x * _scale), (int)(y * _scale), Math.Max(1, (int)(w * _scale)), Math.Max(1, (int)(h * _scale)), true); }
         private string Text(int id) { var s = new StringBuilder(512); N.GetWindowText(_controls[id], s, s.Capacity); return s.ToString(); }
         private void Text(int id, string text) { if (Text(id) != text) N.SetWindowText(_controls[id], text ?? ""); }
@@ -232,14 +292,21 @@ namespace Igtap.Tas.UI
             var s = _channel.Latest; if (s == null) return;
             bool relayout = _shown == null || _shown.Mode != s.Mode || _shown.MainMenu != s.MainMenu;
             _shown = s;
+            Text(100, s.Bindings.Label(TasShortcut.Pause) + "  Pause / Run");
+            Text(101, s.Bindings.Label(TasShortcut.Step) + "  Step frame");
+            Text(102, s.Bindings.Label(TasShortcut.Stop) + "  Stop + reload");
+            Text(114, s.Bindings.Label(TasShortcut.Editors) + " reopens the desktop windows.\r\nClosing this window pauses an advancing run.\r\nCreate/load/replay: in-game Mods > Tas Studio.");
             if (_channel.RequestedPage >= 0)
             {
                 _tab = _channel.RequestedPage == 3 ? 3 : 0;
                 _channel.RequestedPage = -1; _editor?.Open(); relayout = true;
             }
-            Text(1, "TAS STUDIO / " + s.Mode.ToUpperInvariant() + (s.Paused ? " [PAUSED]" : "") + "    " + s.Cursor + " / " + s.Frames + " frames\r\n" +
-                s.Speed.ToString("0.##", CultureInfo.InvariantCulture) + "x   |   " + s.Fps + " fps   |   Rerecords " + s.Rerecords + "   |   Native window in the game process");
-            Text(2, !string.IsNullOrEmpty(_localError) ? _localError : !string.IsNullOrEmpty(s.Error) ? s.Error : s.Status);
+            Text(1, "TAS STUDIO / " + s.Mode.ToUpperInvariant() + (s.Paused ? " [PAUSED]" : "") + "    " + s.Cursor + " / " + s.Frames + " frames | Rerecords " + s.Rerecords + "\r\n" +
+                s.Speed.ToString("0.##", CultureInfo.InvariantCulture) + "x requested | Target " + s.Fps + " FPS | " +
+                (s.HasPerformanceSample ? "Actual " + s.ActualFps.ToString("0.0", CultureInfo.InvariantCulture) + " FPS | Achieved " +
+                    s.AchievedSpeed.ToString("0.00", CultureInfo.InvariantCulture) + "x" + (s.Paused ? " (last sample)" : "") : "Measuring actual FPS..."));
+            Text(2, !string.IsNullOrEmpty(_localError) ? _localError : !string.IsNullOrEmpty(s.Error) ? s.Error :
+                !string.IsNullOrEmpty(s.PerformanceError) ? "FPS report: " + s.PerformanceError : s.Status);
             SetCheck(116, s.TimelineInput);
             if (_name != s.Name && N.GetFocus() != _controls[107]) { Text(107, s.Name); _name = s.Name; }
             Enable(100, s.CanTransport); Enable(101, s.CanTransport); Enable(102, s.Active); Enable(108, s.Frames > 0);
@@ -248,9 +315,16 @@ namespace Igtap.Tas.UI
             Text(108, s.Dirty ? "Save movie *" : "Save movie");
             List(404, s.States, ref _states);
             Text(21, "STAT          CURRENT        NEXT\r\n\r\n" + string.Join("\r\n", s.Stats.Select(r => r.Name.PadRight(12) + r.Current.PadLeft(9) + " " + r.Next.PadLeft(9))));
-            Text(22, "Prediction: " + s.InputSource + "\r\nRecording: " + (s.Authored ? "selected input" : "physical controls"));
-            Text(23, s.Prediction + "\r\n\r\nEstimates do not simulate collisions or triggers.");
+            Details(s);
+            Text(23, s.Prediction);
             if (relayout) Layout();
+        }
+        private void Details(Snapshot s)
+        {
+            N.GetClientRect(Handle, out var area); bool compact = area.Bottom / _scale < 740;
+            string wait = s.FramesUntilPu < 0 ? "--" : s.FramesUntilPu.ToString();
+            Text(22, compact ? "Next PU in " + wait + " frames  |  PUs: " + s.Pus + "\r\nInput: " + s.InputSource :
+                "Frames until next PU: " + wait + "\r\n1 = next frame | PUs: " + s.Pus + "\r\nPrediction: " + s.InputSource);
         }
         private void List(int id, string[] values, ref string[] previous)
         {

@@ -95,7 +95,7 @@ namespace Igtap.Tas.Runtime
                     if (!_session.IsMainMenu) throw new InvalidOperationException("Start Replay is available from the main menu.");
                     _session.StartPlayback(); break;
                 case "create":
-                    var setup = new TasStartSetup { Course = c.Course, AirDashes = c.Dashes, WallJump = c.WallJump,
+                    var setup = new TasStartSetup { FrameRate = c.Fps, Course = c.Course, AirDashes = c.Dashes, WallJump = c.WallJump,
                         DoubleJump = c.AirJump, Dash = c.UnlockDash, OmniDash = c.OmniDash, BlockSwap = c.BlockSwap,
                         Light = c.Light, RefillOrbs = c.Orbs, Zippers = c.Zippers };
                     setup.Validate();
@@ -164,9 +164,13 @@ namespace Igtap.Tas.Runtime
                 var editorMovie = _session.EditorMovie;
                 int page = Math.Max(0, Math.Min(Channel.Page, editorMovie.Frames.Count));
                 var snapshot = new Snapshot {
+                    Bindings = _session.Bindings.Copy(),
                     Mode = _session.Mode.ToString(), Status = _session.Status, Name = _session.FileName, Ack = _ack, Error = _error,
                     Revision = _revision, CompletedSequence = _completedSequence, CanEditTimeline = _session.CanEditTimeline, TimelineInput = _session.UseTimelineInput, PendingEdits = _session.HasPendingEdits,
                     Cursor = _session.Cursor, Frames = editorMovie.Frames.Count, Fps = _session.Movie.FrameRate,
+                    FramesUntilPu = _session.FramesUntilPu, Pus = _session.PuCount,
+                    HasPerformanceSample = _session.Performance.HasSample, ActualFps = _session.Performance.ActualFps,
+                    AchievedSpeed = _session.Performance.AchievedSpeed, PerformanceError = _session.Performance.Error,
                     Rerecords = _session.Movie.Rerecords, Speed = _session.Speed, Active = _session.Active, Paused = _session.Frozen,
                     MainMenu = _session.IsMainMenu, CanEdit = _session.CanEdit, CanState = _session.CanSaveState && !_session.HasPendingEdits,
                     CanTransport = !_session.HasPendingEdits && _session.Active && (_session.Mode == SessionMode.Recording || _session.Mode == SessionMode.Playback),
@@ -174,7 +178,7 @@ namespace Igtap.Tas.Runtime
                     SelectedInput = new FrameRow { X = _session.AuthoredInput.X, Y = _session.AuthoredInput.Y,
                         Jump = _session.AuthoredInput.Down(Buttons.Jump), Dash = _session.AuthoredInput.Down(Buttons.Dash), Reset = _session.AuthoredInput.Down(Buttons.Reset) },
                     Timeline = editorMovie.Frames.Skip(page).Take(200).Select((f, i) => new FrameRow {
-                        Frame = page + i, X = f.Input.X, Y = f.Input.Y, Jump = f.Input.Down(Buttons.Jump) || f.Input.Down(Buttons.Jump2),
+                        Frame = page + i, Pus = f.FixedTicks, X = f.Input.X, Y = f.Input.Y, Jump = f.Input.Down(Buttons.Jump) || f.Input.Down(Buttons.Jump2),
                         Dash = f.Input.Down(Buttons.Dash) || f.Input.Down(Buttons.Dash2), Reset = f.Input.Down(Buttons.Reset), Verified = f.Expected != null
                     }).ToArray(),
                     Prediction = stats.Prediction?.Explanation ?? stats.Message,

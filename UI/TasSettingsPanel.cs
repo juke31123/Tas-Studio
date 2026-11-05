@@ -6,6 +6,7 @@ using Recharge.ModApi;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.InputSystem;
 
 namespace Igtap.Tas.UI
 {
@@ -20,7 +21,10 @@ namespace Igtap.Tas.UI
         private TMP_Text _status, _selected, _filePage;
         private TMP_InputField _name;
         private Button _toggle, _create, _load, _replay, _start, _desktop, _omni, _dashCount;
-        private readonly GameObject[] _pages = new GameObject[3];
+        private readonly GameObject[] _pages = new GameObject[4];
+        private readonly Button[] _bindingButtons = new Button[6];
+        private TMP_Text _shortcutHelp, _bindingHelp;
+        private int _capture = -1;
         private readonly Button[] _fileButtons = new Button[5];
         private IReadOnlyList<MovieFile> _files = Array.Empty<MovieFile>();
         private readonly TasStartSetup _setup = new TasStartSetup();
@@ -29,6 +33,7 @@ namespace Igtap.Tas.UI
         private string _error = "";
         private RectTransform _panel;
         private Canvas _canvas;
+        private bool _hasFrameRates;
         private float _maximumScale;
 
         public void Build(GameObject panel, TasSession session, TasLauncher launcher, Func<string> toggleLabel,
@@ -55,8 +60,21 @@ namespace Igtap.Tas.UI
             _load = Button(home, 0, 125, 500, "Load Tas", () => { RefreshFiles(); ShowPage(2); });
             _replay = Button(home, 0, 65, 500, "Start Replay", _launcher.Replay);
             _desktop = Button(home, 0, -20, 500, "Open desktop editing windows (F5)", openDesktop);
-            _toggle = Button(home, 0, -110, 500, "", toggle);
-            Label(home, 0, -205, 750, 80, "Create, load and replay from the main menu.\nRecording opens desktop editors after loading.\nF6 pause/resume | F7 step | F8 stop\nF9 savestates | F10 player stats");
+            Button(home, 0, -80, 500, "Keybinds", () => ShowPage(3));
+            _toggle = Button(home, 0, -140, 500, "", toggle);
+            _shortcutHelp = Label(home, 0, -230, 750, 85, "");
+
+            var keys = _pages[3].transform;
+            Label(keys, 0, 290, 750, 40, "Tas Studio keybinds");
+            for (int i = 0; i < _bindingButtons.Length; i++)
+            {
+                int action = i;
+                Label(keys, -150, 220 - i * 60, 420, 42, Keybinds.Titles[i]);
+                _bindingButtons[i] = Button(keys, 235, 220 - i * 60, 220, "", () => { _capture = action; });
+            }
+            _bindingHelp = Label(keys, 0, -155, 750, 80, "");
+            Button(keys, -195, -235, 370, "Restore defaults", () => { _capture = -1; _session.SaveBindings(new Keybinds()); });
+            Button(keys, 195, -235, 370, "Back", () => ShowPage(0));
 
             var create = _pages[1].transform;
             Label(create, -280, 300, 180, 36, "Tas name");
@@ -77,6 +95,11 @@ namespace Igtap.Tas.UI
             Choice(create, -195, 5, "Player light", () => _setup.Light, v => _setup.Light = v);
             Choice(create, 195, 5, "Dash + air-jump orbs", () => _setup.RefillOrbs, v => _setup.RefillOrbs = v);
             Choice(create, -195, -50, "Zippers", () => _setup.Zippers, v => _setup.Zippers = v);
+            var rates = GameFrameRates.Available();
+            _hasFrameRates = rates.Length > 0;
+            int selectedRate = Array.IndexOf(rates, Application.targetFrameRate);
+            if (selectedRate < 0) selectedRate = 0;
+            if (_hasFrameRates) _setup.FrameRate = rates[selectedRate];
             Label(create, 0, -125, 760, 65, "New game starts in Area 1. Levels 6-15 load Area 2.\nLevels 11-15 use overgrown versions of levels 1-5.\nYour saved progress is preserved.");
             _start = Button(create, -195, -225, 370, "Start Tas", () => {
                 var setup = _setup.Clone(); if (!setup.Dash) setup.OmniDash = false;
@@ -85,6 +108,11 @@ namespace Igtap.Tas.UI
             Button(create, 195, -225, 370, "Back", () => ShowPage(0));
             // Create the dropdown last so its expanded list draws above the ability controls.
             PanelWidgets.CreateDropdown(create, _font, new Vector2(80, 240), new Vector2(520, 38), starts, 0, value => _setup.Course = value);
+            Label(create, 85, -50, 120, 36, "FPS / 50 PUs");
+            if (_hasFrameRates)
+                PanelWidgets.CreateDropdown(create, _font, new Vector2(270, -50), new Vector2(200, 38),
+                    Array.ConvertAll(rates, fps => fps.ToString()), selectedRate, value => _setup.FrameRate = rates[value]);
+            else Label(create, 255, -50, 240, 36, "Game FPS options unavailable");
 
             var files = _pages[2].transform;
             _filePage = Label(files, 0, 290, 740, 40, "");
@@ -131,7 +159,8 @@ namespace Igtap.Tas.UI
             button = Button(parent, x, y, 370, Text(), () => { set(!get()); PauseMenuHelper.SetButtonLabel(button.gameObject, Text()); });
             return button;
         }
-        private void OnEnable() { if (_session != null) { ShowPage(0); RefreshState(); } }
+        private void OnEnable() { if (_session != null) { _session.SuppressHotkeys = true; ShowPage(0); RefreshState(); } }
+        private void OnDisable() { _capture = -1; if (_session != null) _session.SuppressHotkeys = false; }
         private void LateUpdate()
         {
             if (_panel == null || _canvas == null || !(_panel.parent is RectTransform parent)) return;
@@ -160,11 +189,32 @@ namespace Igtap.Tas.UI
         }
         private void Update()
         {
+            if (_session != null) _session.SuppressHotkeys = true;
+            CaptureBinding();
             if (_session == null || Time.realtimeSinceStartupAsDouble < _nextRefresh) return;
             _nextRefresh = Time.realtimeSinceStartupAsDouble + .2; RefreshState();
         }
         private void ShowPage(int page)
-        { for (int i = 0; i < _pages.Length; i++) _pages[i].SetActive(i == page); }
+        { _capture = -1; for (int i = 0; i < _pages.Length; i++) _pages[i].SetActive(i == page); }
+        private void CaptureBinding()
+        {
+            var keyboard = Keyboard.current;
+            if (_capture < 0 || keyboard == null) return;
+            foreach (var key in keyboard.allKeys)
+            {
+                if (!key.wasPressedThisFrame) continue;
+                if (key.keyCode == Key.Escape) { _capture = -1; _error = ""; RefreshState(); return; }
+                try
+                {
+                    if (TasHotkeys.Modified(keyboard)) throw new ArgumentException("Choose a single key without Ctrl, Shift, Alt or Windows.");
+                    var bindings = _session.Bindings.Copy();
+                    bindings.Assign((TasShortcut)_capture, key.keyCode == Key.Delete ? "" : key.keyCode.ToString());
+                    _session.SaveBindings(bindings); _capture = -1; _error = "";
+                }
+                catch (Exception e) { _error = e.Message; }
+                RefreshState(); return;
+            }
+        }
         private void RefreshFiles()
         {
             _files = _session.Store.ListMovies();
@@ -183,15 +233,25 @@ namespace Igtap.Tas.UI
         private void RefreshState()
         {
             if (_status == null || _toggle == null) return;
+            var bindings = _session.Bindings;
+            PauseMenuHelper.SetButtonLabel(_desktop.gameObject, "Open desktop editing windows (" + bindings.Label(TasShortcut.Editors) + ")");
+            _shortcutHelp.text = "Create, load and replay from the main menu.\nRecording opens desktop editors after loading.\n" +
+                bindings.Label(TasShortcut.Pause) + " pause/resume | " + bindings.Label(TasShortcut.Step) + " step | " + bindings.Label(TasShortcut.Stop) + " stop\n" +
+                bindings.Label(TasShortcut.Savestates) + " savestates | " + bindings.Label(TasShortcut.Stats) + " player stats";
+            for (int i = 0; i < _bindingButtons.Length; i++)
+                PauseMenuHelper.SetButtonLabel(_bindingButtons[i].gameObject, _capture == i ? "Press a key..." : bindings.Label((TasShortcut)i));
+            _bindingHelp.text = _capture >= 0 ? "Press F1-F12, A-Z or 0-9. Escape cancels; Delete clears.\n" + Keybinds.Titles[_capture] :
+                "Click a binding to change it. Changes save automatically.\nShortcuts work in the game and desktop editors.\nAvoid keys used for game actions. Ctrl+S and editor keys stay unchanged.";
             _selected.text = "Selected: " + _session.FileName + "  |  " + _session.Movie.Frames.Count + " frames";
             _create.interactable = _load.interactable = _start.interactable = _launcher.CanLaunch;
+            _start.interactable &= _hasFrameRates;
             _replay.interactable = _launcher.CanLaunch && _session.Movie.Frames.Count > 0;
             _desktop.interactable = _enabled();
             _omni.interactable = _dashCount.interactable = _setup.Dash;
             if (!_setup.Dash) { _setup.OmniDash = false; PauseMenuHelper.SetButtonLabel(_omni.gameObject, "[ ] Omnidirectional dash"); }
             foreach (var button in _fileButtons) if (button != null) button.interactable = _launcher.CanLaunch;
             PauseMenuHelper.SetButtonLabel(_toggle.gameObject, _toggleLabel());
-            _status.text = _error.Length > 0 ? _error : _launcher.Error.Length > 0 ? _launcher.Error : _session.Status;
+            _status.text = _error.Length > 0 ? _error : _session.KeybindError.Length > 0 ? _session.KeybindError : _launcher.Error.Length > 0 ? _launcher.Error : _session.Status;
         }
     }
 }

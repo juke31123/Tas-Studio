@@ -8,6 +8,8 @@
     <Compile Include="Program.cs;MotionTests.cs;../Core/PlayerMotion.cs;../Core/MovementPredictor.cs;../Core/Movie.cs;../Core/SimulationTimers.cs;../Core/Savestate.cs;../Core/MovieStore.cs;../Core/TasStartSetup.cs" />
 
     <Compile Include="FrameCellTests.cs;../Core/FrameCellEdit.cs;../Core/Timeline.cs" />
+    <Compile Include="FrameTimingTests.cs;../Core/FrameTiming.cs" />
+    <Compile Include="PerformanceTests.cs;../Core/PerformanceTrace.cs" />
     <Reference Include="Newtonsoft.Json"><HintPath>$(ManagedDir)/Newtonsoft.Json.dll</HintPath></Reference>
   </ItemGroup>
 </Project>

@@ -33,7 +33,9 @@ namespace Igtap.Tas.Core
             Expire(ref s.JumpCutExpires, frameSeconds, ref s.JumpCutBuffered);
             Expire(ref s.DashBufferExpires, frameSeconds, ref s.DashBuffered);
             Expire(ref s.RecentJumpExpires, frameSeconds, ref s.RecentlyJumped);
-            MotionVector move = NormalizeInput(input.X, input.Y);
+            // Dynamic input is processed after this frame's PUs. Those PUs use
+            // the previous dynamic input; frame actions below use the new input.
+            MotionVector move = NormalizeInput(previous.X, previous.Y);
             for (int i = 0; i < ticks; i++)
             {
                 string unsupported = Tick(s, p, move, fixedSeconds);

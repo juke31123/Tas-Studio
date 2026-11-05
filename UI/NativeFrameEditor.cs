@@ -1,4 +1,5 @@
 using System;
+using Igtap.Tas.Core;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Globalization;
@@ -19,11 +20,12 @@ namespace Igtap.Tas.UI
         private readonly N.WindowProc _procedure;
         private readonly Dictionary<int, IntPtr> _controls = new Dictionary<int, IntPtr>();
         private readonly List<IntPtr> _brushes = new List<IntPtr>();
+        private readonly NativeTheme _theme = new NativeTheme();
         private string _className, _localError = "", _pending = "";
         private IntPtr _handle, _font, _cellEdit;
         private IntPtr _bufferDc, _bufferBitmap, _originalBitmap;
         private int _bufferWidth, _bufferHeight;
-        private string _heading, _footer;
+        private string _heading, _footer, _pauseLabel, _stepLabel;
         private float _scale = 1;
         private Snapshot _snapshot;
         private int _top, _anchor, _end, _column = 1, _editFrame, _editColumn, _revision;
@@ -42,7 +44,8 @@ namespace Igtap.Tas.UI
             if (_className == null)
             {
                 _className = "TasStudio.FrameEditor." + Guid.NewGuid().ToString("N");
-                foreach (uint color in new uint[] { 0x26170C, 0x352212, 0x58442C, 0x406533, 0x806020, 0x373C46 }) _brushes.Add(N.CreateSolidBrush(color));
+                foreach (uint color in new uint[] { NativeTheme.Back, NativeTheme.Panel, NativeTheme.Raised, NativeTheme.Held, 0x604129, NativeTheme.Border,
+                    0x202048, 0x3535A0, 0x35357C, 0x303064 }) _brushes.Add(N.CreateSolidBrush(color));
                 var wc = new N.WindowClass { Size = (uint)Marshal.SizeOf<N.WindowClass>(), Style = 8, Procedure = Marshal.GetFunctionPointerForDelegate(_procedure),
                     Instance = N.GetModuleHandle(null), Cursor = N.LoadCursor(IntPtr.Zero, new IntPtr(32512)), Background = _brushes[0], Name = _className };
                 if (N.RegisterClassEx(ref wc) == 0) { _className = null; throw new Win32Exception(Marshal.GetLastWin32Error()); }
@@ -51,8 +54,10 @@ namespace Igtap.Tas.UI
                 _visible ? unchecked((int)0x80000000) : -30000, _visible ? unchecked((int)0x80000000) : -30000,
                 800, 820, _owner, IntPtr.Zero, N.GetModuleHandle(null), IntPtr.Zero);
             if (_handle == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+            NativeTheme.DarkTitle(_handle);
             _scale = Math.Max(1, N.GetDpiForWindow(_handle) / 96f);
-            Add(1, "BUTTON", "F6 Pause", 0); Add(2, "BUTTON", "F7 Step", 0); Add(3, "BUTTON", "Undo", 0);
+            _theme.Scale(_scale);
+            Add(1, "BUTTON", "Pause", 0); Add(2, "BUTTON", "Step", 0); Add(3, "BUTTON", "Undo", 0);
             Add(4, "BUTTON", "Insert", 0); Add(5, "BUTTON", "Delete", 0); Add(6, "BUTTON", "Clear", 0);
             Add(7, "BUTTON", "Follow cursor", 3); Add(8, "EDIT", "0", 0x00800080); Add(9, "BUTTON", "Go to frame", 0);
             Add(10, "STATIC", "", 0); Add(11, "STATIC", "", 0);
@@ -63,22 +68,24 @@ namespace Igtap.Tas.UI
         }
         private void Add(int id, string kind, string text, uint style)
         {
+            if (kind == "BUTTON" && style == 0) style = 11;
+            if (kind == "STATIC" && id == 10) style = 13;
             var control = N.CreateWindowEx(0, kind, text, 0x50010000 | style, 0, 0, 1, 1, _handle, new IntPtr(id), N.GetModuleHandle(null), IntPtr.Zero);
             if (control == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
             _controls.Add(id, control);
+            if (kind == "BUTTON" && style == 3) N.SetWindowTheme(control, "", "");
         }
         private void Fonts()
         {
-            var old = _font; _font = N.CreateFont(-(int)(14 * _scale), 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 5, 0, "Consolas");
-            foreach (var c in _controls.Values) N.SendMessage(c, 0x30, _font, new IntPtr(1));
-            if (old != IntPtr.Zero) N.DeleteObject(old);
+            _theme.Scale(_scale); _font = _theme.Mono;
+            foreach (var c in _controls.Values) N.SendMessage(c, 0x30, _theme.Normal, new IntPtr(1));
         }
         private void Layout()
         {
             if (_handle == IntPtr.Zero || _controls.Count == 0) return;
             CloseCell(false);
             int width = Width, button = (width - 32) / 6;
-            Move(10, 16, 12, width - 32, 40);
+            Move(10, 16, 8, width - 32, 44);
             for (int i = 0; i < 6; i++) Move(1 + i, 16 + button * i, 58, button - 4, 30);
             Move(7, 16, 98, 140, 28); Move(8, 160, 98, 80, 28); Move(9, 248, 98, 110, 28);
             Move(12, 370, 98, 138, 28); Move(13, 516, 98, 140, 28);
@@ -105,8 +112,8 @@ namespace Igtap.Tas.UI
                 if (message.WParam.ToUInt64() == 13) { CloseCell(true); return true; }
                 if (message.WParam.ToUInt64() == 27) { CloseCell(false); return true; }
                 if (message.WParam.ToUInt64() == 83 && N.GetKeyState(17) < 0) { Button(12); return true; }
-                // Never step/resume the game while typing an axis value.
-                if (message.WParam.ToUInt64() >= 0x75 && message.WParam.ToUInt64() <= 0x77) return true;
+                // Other keys continue to the Edit control; the message loop suppresses
+                // TAS shortcuts while any text field has focus.
             }
             catch (Exception e) { _localError = e.Message; }
             return false;
@@ -118,7 +125,7 @@ namespace Igtap.Tas.UI
                 switch (message)
                 {
                     case 0x10: _saveAfterCell = false; CancelStroke(); CloseCell(false); N.DestroyWindow(hwnd); return IntPtr.Zero;
-                    case 0x2: ReleaseBuffer(); _heading = _footer = null; _handle = IntPtr.Zero; _controls.Clear(); _cellEdit = IntPtr.Zero; return IntPtr.Zero;
+                    case 0x2: ReleaseBuffer(); _heading = _footer = _pauseLabel = _stepLabel = null; _handle = IntPtr.Zero; _controls.Clear(); _cellEdit = IntPtr.Zero; return IntPtr.Zero;
                     case 0x24:
                         var size = Marshal.PtrToStructure<N.MinMax>(lp); size.MinTrack.X = (int)(720 * _scale); size.MinTrack.Y = (int)(520 * _scale);
                         Marshal.StructureToPtr(size, lp, false); return IntPtr.Zero;
@@ -127,6 +134,11 @@ namespace Igtap.Tas.UI
                         _scale = (wp.ToInt64() & 0xffff) / 96f; var rect = Marshal.PtrToStructure<N.Rect>(lp);
                         N.MoveWindow(hwnd, rect.Left, rect.Top, rect.Right - rect.Left, rect.Bottom - rect.Top, true); Fonts(); Layout(); return IntPtr.Zero;
                     case 0xF: Paint(hwnd); return IntPtr.Zero;
+                    case 0x2B:
+                        var item = Marshal.PtrToStructure<N.DrawItem>(lp);
+                        if (item.Type == 4) _theme.Button(item, item.Id == 1 || item.Id == 12, false, item.Id == 5);
+                        else if (item.Id == 10) _theme.Header(item, _snapshot, "FRAME EDITOR", true);
+                        return new IntPtr(1);
                     case 0x14: return new IntPtr(1);
                     case 0x201: MouseDown(lp, false); return IntPtr.Zero;
                     case 0x203: MouseDown(lp, true); return IntPtr.Zero;
@@ -154,7 +166,10 @@ namespace Igtap.Tas.UI
                         int id = (int)(wp.ToInt64() & 0xffff);
                         if (((wp.ToInt64() >> 16) & 0xffff) == 0) Button(id);
                         return IntPtr.Zero;
-                    case 0x133: case 0x138: N.SetBkColor(wp, 0x26170C); N.SetTextColor(wp, 0xF2E6D9); return _brushes[0];
+                    case 0x133: case 0x135: case 0x138:
+                        uint surface = message == 0x133 ? NativeTheme.Input : NativeTheme.Panel;
+                        N.SetBkColor(wp, surface); N.SetTextColor(wp, message == 0x138 ? NativeTheme.Muted : NativeTheme.Text);
+                        return _theme.Brush(surface);
                 }
             }
             catch (Exception e) { _localError = e.Message; Invalidate(); }
@@ -282,6 +297,8 @@ namespace Igtap.Tas.UI
             if (_pending == snapshot.Ack || snapshot.CompletedSequence >= _pendingSequence) _pending = "";
             if (_snapshot != null && snapshot.Revision != _snapshot.Revision) { CancelStroke(); CloseCell(false); }
             _snapshot = snapshot;
+            SetLabel(1, ref _pauseLabel, snapshot.Bindings.Label(TasShortcut.Pause) + " Pause");
+            SetLabel(2, ref _stepLabel, snapshot.Bindings.Label(TasShortcut.Step) + " Step");
             if (_saveAfterCell && _pending.Length == 0)
             {
                 _saveAfterCell = false;
@@ -315,7 +332,7 @@ namespace Igtap.Tas.UI
             for (int i = 0; i < a.Timeline.Length; i++)
             {
                 var x = a.Timeline[i]; var y = b.Timeline[i];
-                if (x.Frame != y.Frame || x.X != y.X || x.Y != y.Y || x.Jump != y.Jump || x.Dash != y.Dash || x.Reset != y.Reset || x.Verified != y.Verified) return false;
+                if (x.Frame != y.Frame || x.Pus != y.Pus || x.X != y.X || x.Y != y.Y || x.Jump != y.Jump || x.Dash != y.Dash || x.Reset != y.Reset || x.Verified != y.Verified) return false;
             }
             return true;
         }
@@ -353,8 +370,9 @@ namespace Igtap.Tas.UI
                 var old = N.SelectObject(dc, _font);
                 try
                 {
-                    N.SetBkMode(dc, 1); N.SetTextColor(dc, 0xF2E6D9);
+                    N.SetBkMode(dc, 1); N.SetTextColor(dc, NativeTheme.Text);
                     N.FillRect(dc, ref background, _brushes[0]);
+                    _theme.Box(dc, Rect(16, 54, Width - 32, 76), NativeTheme.Panel);
                     for (int c = 0; c < 10; c++)
                     {
                         var rect = Cell(_top, c); rect.Top -= (int)(Header * _scale); rect.Bottom = rect.Top + (int)(Header * _scale);
@@ -370,6 +388,8 @@ namespace Igtap.Tas.UI
                             bool held = loaded && c > 0 && c < 8 && Held(f, c);
                             if (_stroke && c == _strokeColumn && row >= Math.Min(_strokeStart, _strokeEnd) && row <= Math.Max(_strokeStart, _strokeEnd)) held = _strokeHeld;
                             int brush = held ? 3 : row == _snapshot.Cursor ? 4 : row >= Math.Min(_anchor, _end) && row <= Math.Max(_anchor, _end) ? 2 : i % 2 == 0 ? 0 : 1;
+                            if (loaded && f.Pus > 0) brush = held ? 7 : row == _snapshot.Cursor ? 8 :
+                                row >= Math.Min(_anchor, _end) && row <= Math.Max(_anchor, _end) ? 9 : 6;
                             N.FillRect(dc, ref rect, _brushes[brush]);
                             string text = c == 0 ? (row == _snapshot.Cursor ? ">" : "") + row.ToString("D6") + (row == _snapshot.Frames ? "+" : loaded && !f.Verified ? "*" : "") :
                                 !loaded ? "..." : c == 8 ? f.X.ToString("0.###", CultureInfo.InvariantCulture) : c == 9 ? f.Y.ToString("0.###", CultureInfo.InvariantCulture) : held ? Titles[c] : "";
@@ -388,7 +408,7 @@ namespace Igtap.Tas.UI
             if (_handle != IntPtr.Zero) N.DestroyWindow(_handle);
             ReleaseBuffer();
             if (_className != null) { N.UnregisterClass(_className, N.GetModuleHandle(null)); _className = null; }
-            if (_font != IntPtr.Zero) { N.DeleteObject(_font); _font = IntPtr.Zero; }
+            _theme.Dispose(); _font = IntPtr.Zero;
             foreach (var brush in _brushes) N.DeleteObject(brush); _brushes.Clear();
         }
     }

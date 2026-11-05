@@ -1,9 +1,9 @@
 # Player stats and prediction (0.4.0)
 
-Current UI (0.6.0): these controls live in the desktop Studio, opened automatically after starting a run from Mods > Tas Studio. F5 reopens Studio and Frame Editor; F9 selects States and F10 shows player stats. The former floating in-game windows have been removed.
+Current UI (0.8.0): these controls live in the desktop Studio, opened automatically after starting a run from Mods > Tas Studio. F5 reopens Studio and Frame Editor; F9 selects States and F10 shows player stats. The former floating in-game windows have been removed. Stats also shows **Frames until next PU**: 1 means the next game frame contains a physics update. The countdown uses the movie FPS and current game time scale; during dash hitstop it shows unknown until the game resumes. Editor pauses preserve the countdown. See [frame timing](FRAME-TIMING.md).
 
 
-Press **F10** or click **F10 Player stats** in the gameplay TAS window. This draggable window is independent of F5 and works in ordinary gameplay, recording, paused frame stepping and replay. It shows scene-space physics-body position, X/Y velocity in game units per second, speed, movement state and remaining air jumps/dashes. Controller velocity and momentum are shown separately because IGTAP combines those with platform motion before setting the body's velocity. Grounded, jumping/rising, falling, airborne/apex, wall sliding, dashing and dead are distinguished. Pause does not erase the player's movement state.
+Press **F10** to open the desktop player stats. It shows scene-space physics-body position, X/Y velocity in game units per second, speed, movement state and remaining air jumps/dashes. Controller velocity and momentum are shown separately because IGTAP combines those with platform motion before setting the body's velocity. Grounded, jumping/rising, falling, airborne/apex, wall sliding, dashing and dead are distinguished. Pause does not erase the player's movement state.
 
 ## Next frame estimate
 

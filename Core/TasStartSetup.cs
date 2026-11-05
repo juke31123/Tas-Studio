@@ -6,6 +6,7 @@ namespace Igtap.Tas.Core
     public sealed class TasStartSetup
     {
         public int Difficulty; // Release game: normal only.
+        public int FrameRate = 50;
         public int Course; // UI level: 0 new game, 1-10 original, 11-15 overgrown 1-5.
         public bool WallJump, DoubleJump, Dash, OmniDash, BlockSwap, Light;
         public bool RefillOrbs, Zippers;
@@ -25,6 +26,7 @@ namespace Igtap.Tas.Core
         public TasStartSetup Clone() => (TasStartSetup)MemberwiseClone();
         public void Validate()
         {
+            FrameTiming.ValidateFps(FrameRate);
             if (Difficulty != 0 || Course < 0 || Course > CourseCount)
                 throw new InvalidOperationException("Choose New game or a release-game level from 1 to 15.");
             if (AirJumps != 1 || AirDashes < 1 || AirDashes > 2)

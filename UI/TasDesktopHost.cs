@@ -27,6 +27,9 @@ namespace Igtap.Tas.UI
         }
         public void RefreshPlayerStats()
         { _stats.Refresh(_session, _desktop?.Connected == true); _desktop?.Publish(_stats); }
-        private void OnDisable() { _desktop?.Dispose(); _desktop = null; }
+        private void OnDisable()
+        {
+            _desktop?.Dispose(); _desktop = null;
+        }
     }
 }

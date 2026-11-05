@@ -1,4 +1,9 @@
-# Frame Editor (0.6.1)
+# Frame Editor (0.8.0)
+
+Each row is one game frame at the movie's chosen FPS. A red background marks a
+frame with observed physics updates (PUs). Brighter red marks held inputs on those
+rows. Editing clears later observations until Save edits rebuilds them. The
+player stats show an inclusive countdown to the next PU (1 = next frame).
 
 Create a run from **Mods > Tas Studio**; Studio and Frame Editor open after loading completes. **F5** reopens both windows. Both run inside IGTAP; there is no separate executable. Studio keeps run controls, savestates and player stats. Creation/loading/replay launch live in the game settings page.
 

@@ -22,6 +22,12 @@ namespace Igtap.Tas.UI
         [StructLayout(LayoutKind.Sequential)] internal struct MinMax { public Point Reserved, MaxSize, MaxPosition, MinTrack, MaxTrack; }
         [StructLayout(LayoutKind.Sequential)] internal struct Paint { public IntPtr Dc; public int Erase; public Rect Rect; public int Restore, Update; [MarshalAs(UnmanagedType.ByValArray, SizeConst = 32)] public byte[] Reserved; }
         [StructLayout(LayoutKind.Sequential)] internal struct Scroll { public uint Size, Mask; public int Min, Max; public uint Page; public int Position, Track; }
+        [StructLayout(LayoutKind.Sequential)] internal struct DrawItem { public uint Type, Id, Item, Action, State; public IntPtr Window, Dc; public Rect Rect; public UIntPtr Data; }
+        [DllImport("gdi32.dll")] internal static extern bool RoundRect(IntPtr dc, int left, int top, int right, int bottom, int ellipseWidth, int ellipseHeight);
+        [DllImport("gdi32.dll")] internal static extern IntPtr GetStockObject(int index);
+        [DllImport("user32.dll")] internal static extern bool DrawFocusRect(IntPtr dc, ref Rect rect);
+        [DllImport("dwmapi.dll")] internal static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+        [DllImport("uxtheme.dll", CharSet = CharSet.Unicode)] internal static extern int SetWindowTheme(IntPtr hwnd, string app, string classes);
         [DllImport("user32.dll")] internal static extern IntPtr BeginPaint(IntPtr hwnd, out Paint paint);
         [DllImport("user32.dll")] internal static extern bool EndPaint(IntPtr hwnd, ref Paint paint);
         [DllImport("user32.dll")] internal static extern int FillRect(IntPtr dc, ref Rect rect, IntPtr brush);
@@ -67,6 +73,7 @@ namespace Igtap.Tas.UI
         [DllImport("user32.dll")] internal static extern uint GetDpiForWindow(IntPtr hwnd);
         [DllImport("user32.dll")] internal static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
         [DllImport("user32.dll")] internal static extern IntPtr GetFocus();
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] internal static extern int GetClassName(IntPtr hwnd, System.Text.StringBuilder name, int maxCount);
         [DllImport("gdi32.dll")] internal static extern IntPtr CreateSolidBrush(uint color);
         [DllImport("gdi32.dll")] internal static extern bool DeleteObject(IntPtr value);
         [DllImport("gdi32.dll")] internal static extern uint SetTextColor(IntPtr dc, uint color);

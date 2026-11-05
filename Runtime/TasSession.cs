@@ -41,7 +41,17 @@ namespace Igtap.Tas.Runtime
         public IgtapAdapter Adapter { get; }
         internal SimulationTimers MovementTimers { get; } = new SimulationTimers();
         public MovieStore Store { get; }
+        public Keybinds Bindings { get; private set; } = new Keybinds();
+        private readonly string _bindingsPath;
+        public bool SuppressHotkeys;
+        public string KeybindError { get; private set; } = "";
+        public void SaveBindings(Keybinds bindings)
+        {
+            bindings.Save(_bindingsPath);
+            Bindings = bindings.Copy(); KeybindError = "";
+        }
         public SavestateStore States { get; }
+        public PerformanceTrace Performance { get; }
         public Movie Movie { get; private set; } = new Movie();
         public SessionMode Mode { get; private set; }
         public bool Active => _clock != null;
@@ -86,7 +96,14 @@ namespace Igtap.Tas.Runtime
         public FrameInput CurrentInput => _current;
         public FrameInput PreviousInput => _previous;
         public float StepSeconds => 1f / Movie.FrameRate;
+        public double PuPhase => _clock?.Phase ?? 0;
+        public long PuCount => _clock?.Pus ?? 0;
+        public int FramesUntilPu => _clock?.FramesUntilPu ?? -1;
         public double LogicalTime => _logicalSteps * (double)StepSeconds;
+        public double ScaledNow => _clock?.ScaledNow ?? Time.timeAsDouble;
+        public float UnscaledDelta => Frozen ? 0 : Time.inFixedTimeStep ? _clock.FixedUnscaledDelta : StepSeconds;
+        public double UnscaledNow => (_logicalSteps + (_frameOpen ? 1 : 0)) / (double)Movie.FrameRate -
+            (Time.inFixedTimeStep && !Frozen ? _clock.FixedUnscaledLag : 0);
         public bool CanEdit => !Active;
         public bool Dirty { get; private set; }
         public float Speed => _speed;
@@ -94,8 +111,12 @@ namespace Igtap.Tas.Runtime
         public TasSession(IRechargeHost host, string modId)
         {
             _host = host; Adapter = new IgtapAdapter();
+            _bindingsPath = System.IO.Path.Combine(host.ModDataDir(modId), "keybinds.json");
+            try { Bindings = Keybinds.Load(_bindingsPath); }
+            catch (Exception e) { KeybindError = "Could not load keybinds; defaults are active. " + e.Message; }
             Store = new MovieStore(System.IO.Path.Combine(host.ModDataDir(modId), "movies"));
             States = new SavestateStore(System.IO.Path.Combine(host.ModDataDir(modId), "states"));
+            Performance = new PerformanceTrace(System.IO.Path.Combine(host.ModDataDir(modId), "performance"));
             SceneManager.sceneLoaded += SceneLoaded;
         }
         // UI requests are serialized at the loop boundary, never from OnGUI mid-frame.
@@ -164,7 +185,7 @@ namespace Igtap.Tas.Runtime
                 UnityVersion = Application.unityVersion, ModSetHash = EnvironmentFingerprint.Mods(),
                 SaveHash = EnvironmentFingerprint.Saves(), FixedDeltaTime = Time.fixedDeltaTime
             };
-            Movie.BootstrapVersion = 3;
+            Movie.BootstrapVersion = 4;
             _recordingTrace = null;
             Cursor = 0; Dirty = true; Begin(false);
         }
@@ -174,6 +195,7 @@ namespace Igtap.Tas.Runtime
             if (!IsMainMenu) throw new InvalidOperationException("Create New Tas is available from the game's main menu.");
             if (setup == null) throw new ArgumentNullException(nameof(setup));
             setup.Validate();
+            GameFrameRates.RequireAvailable(setup.FrameRate);
             string scene = Adapter.SceneFor(setup);
             if (!Adapter.CanLoadScene(scene)) throw new InvalidOperationException("The selected gameplay scene is unavailable.");
             FileName = MovieStore.NormalizeName(FileName);
@@ -181,7 +203,8 @@ namespace Igtap.Tas.Runtime
             Movie = new Movie {
                 Name = FileName, Scene = scene, Difficulty = setup.Difficulty, StartSetup = setup.Clone(),
                 GameHash = EnvironmentFingerprint.Game(), ModSetHash = EnvironmentFingerprint.Mods(),
-                UnityVersion = Application.unityVersion, BootstrapVersion = 3, FixedDeltaTime = .02f
+                UnityVersion = Application.unityVersion, BootstrapVersion = 4, FixedDeltaTime = .02f,
+                FrameRate = setup.FrameRate
             };
             _recordingTrace = null; Cursor = 0; Dirty = true;
             Begin(false);
@@ -212,6 +235,8 @@ namespace Igtap.Tas.Runtime
             MovementTimers.Capture(witness);
             witness.Numbers["session/scale"] = _clock.SimulationScale;
             witness.Numbers["session/logicalTime"] = LogicalTime;
+            witness.Numbers["session/puPhase"] = PuPhase;
+            witness.Numbers["session/puCount"] = PuCount;
             witness.Validate(); return witness;
         }
         public void SaveState(string label)
@@ -243,7 +268,7 @@ namespace Igtap.Tas.Runtime
             _recordingTrace = null; _restoringState = state;
             _seek = state.Frame; _seekBranch = false;
             Begin(true);
-            Status = "Rebuilding savestate at frame " + state.Frame + ". F8 cancels. Recording resumes paused after verification.";
+            Status = "Rebuilding savestate at frame " + state.Frame + ". Use Stop to cancel. Recording resumes paused after verification.";
         }
         private void Begin(bool playing)
         {
@@ -272,7 +297,6 @@ namespace Igtap.Tas.Runtime
                 if (Active)
                 {
                     _clock.EnforcePacing();
-                    InputSystem.Update(); // exactly one manual input update per rendered frame
                 }
                 Hotkeys();
                 var command = _command; _command = null;
@@ -297,11 +321,9 @@ namespace Igtap.Tas.Runtime
                 if (Adapter.Player.pauseMenu != null && Adapter.Player.pauseMenu.menuOpen)
                     throw new InvalidOperationException("A game menu opened during the movie.");
                 if (Mode == SessionMode.Complete || Mode == SessionMode.Desync) return;
-                _previous = _current;
-                _current = Mode == SessionMode.Warmup ? default : _playing ? Movie.Frames[Cursor].Input : DiagnosticNeutralInput ? default :
-                    UseTimelineInput && Cursor < Movie.Frames.Count ? Movie.Frames[Cursor].Input : UseAuthoredInput ? AuthoredInput : Adapter.ReadPhysicalInput();
                 _fixedTicks = 0; _frameOpen = true;
-                MovementTimers.Advance(StepSeconds * (double)Time.timeScale);
+                _clock.BeginFrame();
+                MovementTimers.Advance(Time.deltaTime);
             }
             catch (Exception error) { HandleError(error); }
         }
@@ -310,6 +332,11 @@ namespace Igtap.Tas.Runtime
             try
             {
                 if (!Active) return;
+                if (Mode == SessionMode.Warmup && _clock.Aligning)
+                {
+                    if (_clock.CompleteAlignment()) Frozen = false;
+                    return;
+                }
                 if (_readyAtEnd)
                 {
                     _readyAtEnd = false;
@@ -325,12 +352,15 @@ namespace Igtap.Tas.Runtime
                     Adapter.PrepareSimulation();
                     TraceBootstrap("before-first-warmup-frame");
                     _clock.FinishLoading(_bootstrapScale);
-                    Frozen = false; Mode = SessionMode.Warmup;
+                    // Keep game callbacks gated during the clock-only alignment frame.
+                    Frozen = true; Mode = SessionMode.Warmup;
                     Status = "Game loaded. Preparing the deterministic starting state.";
                     return;
                 }
                 if (_frameOpen)
                 {
+                    try { _clock.CompleteFrame(_fixedTicks); }
+                    catch (InvalidOperationException error) { Desync(error.Message); _frameOpen = false; return; }
                     _logicalSteps++;
                     if (Mode == SessionMode.Warmup)
                     {
@@ -346,10 +376,11 @@ namespace Igtap.Tas.Runtime
                             var start = Adapter.Probe();
                             if (_playing)
                             {
+                                if (Math.Abs(Movie.StartPuPhase - PuPhase) > .000002) { Desync("Starting frame/PU offset differs"); return; }
                                 var difference = ProbeComparer.Difference(Movie.StartState, start);
                                 if (difference != null) { Desync("Starting state: " + difference); return; }
                             }
-                            else Movie.StartState = start;
+                            else { Movie.StartState = start; Movie.StartPuPhase = PuPhase; }
                             if (!_playing) _recordingTrace = _bootstrapTrace.ToArray();
                             WriteBootstrapReport();
                             Mode = _playing ? SessionMode.Playback : SessionMode.Recording;
@@ -366,17 +397,18 @@ namespace Igtap.Tas.Runtime
                             var frame = Movie.Frames[Cursor];
                             var difference = ProbeComparer.Difference(frame.Expected, state);
                             if (difference == null && frame.FixedTicks >= 0 && frame.FixedTicks != _fixedTicks) difference = "Physics tick schedule differs";
+                            if (difference == null && frame.PuPhase >= 0 && Math.Abs(frame.PuPhase - PuPhase) > .000002) difference = "Frame/PU offset differs";
                             if (difference != null) { Desync("Frame " + Cursor + ": " + difference); return; }
                             // A recording rebuild observes the changed prefix afresh.
                             // These become recording references, not independent proof.
                             if (_rebuildingEdit && _editReturnRecording && frame.Expected == null)
-                            { frame.Expected = state; frame.FixedTicks = _fixedTicks; }
+                            { frame.Expected = state; frame.FixedTicks = _fixedTicks; frame.PuPhase = PuPhase; }
                             // Validate edits by replaying them, but don't label new probes as independent proof.
                         }
                         else
                         {
                             if (Cursor >= Core.Movie.MaxFrames) throw new InvalidOperationException("Maximum movie length reached; save the recording.");
-                            var recorded = new MovieFrame { Input = _current, Expected = state, FixedTicks = _fixedTicks };
+                            var recorded = new MovieFrame { Input = _current, Expected = state, FixedTicks = _fixedTicks, PuPhase = PuPhase };
                             if (Cursor < Movie.Frames.Count)
                             {
                                 if (!UseTimelineInput) Timeline.Invalidate(Movie, Cursor);
@@ -407,7 +439,46 @@ namespace Igtap.Tas.Runtime
                 }
             }
             catch (Exception error) { HandleError(error); }
-            finally { _clock?.EnforcePacing(); }
+            finally
+            {
+                _clock?.EnforcePacing(); ScheduleNextFrame();
+                Performance.Observe(Time.realtimeSinceStartupAsDouble, Mode.ToString(), FileName, Cursor, Movie.FrameRate,
+                    PuCount, Frozen, Speed, Application.targetFrameRate, QualitySettings.vSyncCount,
+                    PreviewTimeScale, Application.isFocused);
+            }
+        }
+        // Installed immediately before ScriptRunBehaviourUpdate, after Unity's
+        // dynamic input event processing. Earlier PUs still see the prior input.
+        public void SampleFrameInput()
+        {
+            if (!_frameOpen || Frozen || !Active) return;
+            try
+            {
+                _previous = _current;
+                if (Mode == SessionMode.Warmup || DiagnosticNeutralInput && !_playing) _current = default;
+                else if (_playing) _current = Movie.Frames[Cursor].Input;
+                else if (UseTimelineInput && Cursor < Movie.Frames.Count) _current = Movie.Frames[Cursor].Input;
+                else if (UseAuthoredInput) _current = AuthoredInput;
+                else
+                {
+                    _current = Adapter.ReadPhysicalInput();
+                    if (_current.ExactEdges)
+                    {
+                        // Unity's per-update flags expire while the TAS is paused.
+                        // Compare with the last simulated input, not the preceding
+                        // rendered pause frame. Retain native edges too: a quick tap
+                        // can have both press and release without changing Held.
+                        _current.Press |= _current.Held & ~_previous.Held;
+                        _current.Release |= _previous.Held & ~_current.Held;
+                    }
+                }
+            }
+            catch (Exception error) { HandleError(error); }
+        }
+        public void ScheduleNextFrame()
+        {
+            try { if (Active && !Frozen && Mode != SessionMode.Loading && Mode != SessionMode.Stopping) _clock.PrepareNextFrame(); }
+            catch (Exception error) { HandleError(error); }
         }
         private bool _resumeSingle;
         public void TogglePause()
@@ -450,7 +521,7 @@ namespace Igtap.Tas.Runtime
                 }
                 Timeline.Branch(Movie, Cursor); Dirty = true;
                 _playing = false; Mode = SessionMode.Recording;
-                PauseNow(); Status = "Savestate restored at frame " + Cursor + ". Recording is paused; F6 resumes, F7 steps.";
+                PauseNow(); Status = "Savestate restored at frame " + Cursor + ". Recording is paused; use Pause / Run to resume or Step frame to advance.";
                 return;
             }
             if (_seekBranch)
@@ -555,6 +626,8 @@ namespace Igtap.Tas.Runtime
                     StartSetup = Movie.StartSetup, Difficulty = Movie.Difficulty, Scene = Movie.Scene,
                     Expected = expected, Actual = Adapter.Probe(), CurrentInput = _current, PreviousInput = _previous,
                     ActualFixedTicks = _fixedTicks,
+                    Fps = Movie.FrameRate, PuPhase = PuPhase, NativePuPhase = Time.timeAsDouble - Time.fixedTimeAsDouble,
+                    PuCount = PuCount, InputMode = InputSystem.settings.updateMode.ToString(),
                     BootstrapVersion = Movie.BootstrapVersion, WarmupFramesCompleted = _warmup,
                     RecordingBootstrap = _recordingTrace, CurrentBootstrap = _bootstrapTrace,
                     ActualDetails = Adapter.Diagnostics(),
@@ -572,6 +645,7 @@ namespace Igtap.Tas.Runtime
                 Phase = phase, EngineFrame = Time.frameCount, Mode = Mode.ToString(),
                 TimeScale = Time.timeScale, DeltaTime = Time.deltaTime, FixedDeltaTime = Time.fixedDeltaTime,
                 FixedTicks = _fixedTicks, Physics = Physics2D.simulationMode.ToString(),
+                Fps = Movie.FrameRate, PuPhase = PuPhase, NativePuPhase = Time.timeAsDouble - Time.fixedTimeAsDouble,
                 Player = Adapter.Diagnostics()
             });
         }
@@ -615,15 +689,16 @@ namespace Igtap.Tas.Runtime
         }
         private void Hotkeys()
         {
-            var k = Keyboard.current; if (k == null) return;
-            if (k.f5Key.wasPressedThisFrame || k.f10Key.wasPressedThisFrame) DesktopPageRequest = 0;
-            if (k.f9Key.wasPressedThisFrame) DesktopPageRequest = 3;
-            if (k.f8Key.wasPressedThisFrame && Active) Queue(Stop);
-            else if (k.f6Key.wasPressedThisFrame && (Mode == SessionMode.Recording || Mode == SessionMode.Playback)) Queue(TogglePause);
-            else if (k.f7Key.wasPressedThisFrame && (Mode == SessionMode.Recording || Mode == SessionMode.Playback)) Queue(Step);
+            if (SuppressHotkeys || !Application.isFocused) return;
+            if (TasHotkeys.Pressed(Bindings, TasShortcut.Editors) || TasHotkeys.Pressed(Bindings, TasShortcut.Stats)) DesktopPageRequest = 0;
+            if (TasHotkeys.Pressed(Bindings, TasShortcut.Savestates)) DesktopPageRequest = 3;
+            if (TasHotkeys.Pressed(Bindings, TasShortcut.Stop) && Active) Queue(Stop);
+            else if (TasHotkeys.Pressed(Bindings, TasShortcut.Pause) && (Mode == SessionMode.Recording || Mode == SessionMode.Playback)) Queue(TogglePause);
+            else if (TasHotkeys.Pressed(Bindings, TasShortcut.Step) && (Mode == SessionMode.Recording || Mode == SessionMode.Playback)) Queue(Step);
         }
         private void Release()
         {
+            Performance.Finish("released");
             _rebuildingEdit = false;
             _restoringState = null;
             Adapter.RestoreStartEnvironment();

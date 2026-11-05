@@ -1,4 +1,31 @@
-# Tas Studio 0.6.1
+# Tas Studio 0.9.2
+
+Fixes physical jump/dash/reset presses and releases lost while frame advancing.
+Hold the intended input and step: changes since the last simulated frame now reach
+the game even after Unity's original input-event flags have expired during pause.
+Native same-frame taps still retain both edges. Physics remains at 50 PUs per second.
+Record a new run; this update does not repair missing events in existing recordings.
+
+Open **Mods > Tas Studio > Keybinds** to change the six TAS shortcuts.
+Click a binding, then press F1-F12, A-Z or 0-9. Escape cancels; Delete unbinds.
+Changes save automatically to `data/keybinds.json`; Restore defaults resets all six.
+Duplicate bindings are rejected. Avoid keys used for game actions. Shortcuts are
+inactive while this settings menu is open or while typing into desktop fields.
+The shortcuts below describe the defaults; desktop labels follow your bindings.
+
+The desktop Studio and Frame Editor use a shared dark theme inspired by TatsuyaTas:
+teal controls, colored status badges, grouped panels and aligned player stats.
+
+FPS diagnostics are automatic. Studio shows target and measured FPS plus achieved
+speed. Recording/replay CSV reports are saved to `data/performance/`.
+See docs/FPS-DIAGNOSTICS.md for the short test procedure.
+
+Create New Tas now includes the game's FPS choices. Recording and replay lock
+that FPS while physics stays at 50 PUs per game second. PU frames appear red in
+the editor, and stats show frames until the next PU. Record new runs: earlier
+movie formats are incompatible. See docs/FRAME-TIMING.md.
+
+The built-in hitbox viewer was removed in 0.8.2. Use your separate hitbox mod for outlines.
 
 Requires IGTAP on Windows with Recharge installed. Both desktop windows run inside the game process; no separate executable or Desktop Runtime is needed.
 
