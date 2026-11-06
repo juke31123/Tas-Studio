@@ -1,4 +1,14 @@
-# Frame Editor (0.8.0)
+# Frame Editor (0.9.3)
+
+**Menu** is the game's Pause action, separate from the TAS Pause / Run controls.
+Paint a Menu press to open the in-game pause menu; leave at least one released row
+before another press to close it. A continuous hold toggles only on its first row.
+As with other edits, use Save edits to apply/rebuild. While the game menu is open,
+movie frames and menu inputs still run but native game time and physics stop.
+Physical recording captures the game's configured Pause binding (normally Escape).
+Clicks on the native Resume button become a recorded press on the next advancing
+frame. Playback ignores live Resume clicks. Menu navigation/settings are not part
+of the input schema; use the recorded Menu action for reproducible open/close.
 
 Each row is one game frame at the movie's chosen FPS. A red background marks a
 frame with observed physics updates (PUs). Brighter red marks held inputs on those
@@ -9,7 +19,7 @@ Create a run from **Mods > Tas Studio**; Studio and Frame Editor open after load
 
 ## Editing directly in the list
 
-- **Click U/D/L/R, Jump, Dash or Reset** to toggle that input on a frame. Setting one direction replaces the opposite direction on the same axis. Other inputs on the frame stay unchanged.
+- **Click U/D/L/R, Jump, Dash, Reset or Menu** to toggle that input on a frame. Setting one direction replaces the opposite direction on the same axis. Other inputs on the frame stay unchanged.
 - **Drag vertically in a button column** to paint a hold or release over the visible rows. The first cell determines the value for the stroke; the entire stroke becomes one undoable draft edit on mouse release.
 - **Double-click X or Y** to type an analog value directly into that cell, from -1 to 1. Dot and comma are accepted. Enter stages the value; Escape cancels the cell edit. Save edits also accepts a value still being typed. Function-key stepping is suppressed while typing in the cell.
 - Click a **frame number** to select a row; **Shift-click another frame number** to select a range. Insert adds neutral rows before the selection, Delete removes selected rows, and Clear neutralizes their inputs. Ins/Del also work when the grid has focus. Space paints the last selected button column over the selected rows.

@@ -146,7 +146,7 @@ namespace Igtap.Tas.Runtime
         {
             if (float.IsNaN(c.X) || float.IsInfinity(c.X) || float.IsNaN(c.Y) || float.IsInfinity(c.Y) || Math.Abs(c.X) > 1 || Math.Abs(c.Y) > 1)
                 throw new ArgumentException("Input axes must be between -1 and 1.");
-            return new FrameInput { X = c.X, Y = c.Y, Held = (c.Jump ? Buttons.Jump : 0) | (c.Dash ? Buttons.Dash : 0) | (c.Reset ? Buttons.Reset : 0) };
+            return new FrameInput { X = c.X, Y = c.Y, Held = (c.Jump ? Buttons.Jump : 0) | (c.Dash ? Buttons.Dash : 0) | (c.Reset ? Buttons.Reset : 0) | (c.Menu ? Buttons.Menu : 0) };
         }
         public void Publish(PlayerStatsMonitor stats)
         {
@@ -176,10 +176,10 @@ namespace Igtap.Tas.Runtime
                     CanTransport = !_session.HasPendingEdits && _session.Active && (_session.Mode == SessionMode.Recording || _session.Mode == SessionMode.Playback),
                     Dirty = _session.Dirty, Authored = _session.UseAuthoredInput, Movies = _movies, States = _states, Page = page,
                     SelectedInput = new FrameRow { X = _session.AuthoredInput.X, Y = _session.AuthoredInput.Y,
-                        Jump = _session.AuthoredInput.Down(Buttons.Jump), Dash = _session.AuthoredInput.Down(Buttons.Dash), Reset = _session.AuthoredInput.Down(Buttons.Reset) },
+                        Jump = _session.AuthoredInput.Down(Buttons.Jump), Dash = _session.AuthoredInput.Down(Buttons.Dash), Reset = _session.AuthoredInput.Down(Buttons.Reset), Menu = _session.AuthoredInput.Down(Buttons.Menu) },
                     Timeline = editorMovie.Frames.Skip(page).Take(200).Select((f, i) => new FrameRow {
                         Frame = page + i, Pus = f.FixedTicks, X = f.Input.X, Y = f.Input.Y, Jump = f.Input.Down(Buttons.Jump) || f.Input.Down(Buttons.Jump2),
-                        Dash = f.Input.Down(Buttons.Dash) || f.Input.Down(Buttons.Dash2), Reset = f.Input.Down(Buttons.Reset), Verified = f.Expected != null
+                        Dash = f.Input.Down(Buttons.Dash) || f.Input.Down(Buttons.Dash2), Reset = f.Input.Down(Buttons.Reset), Menu = f.Input.Down(Buttons.Menu), Verified = f.Expected != null
                     }).ToArray(),
                     Prediction = stats.Prediction?.Explanation ?? stats.Message,
                     InputSource = stats.InputSource

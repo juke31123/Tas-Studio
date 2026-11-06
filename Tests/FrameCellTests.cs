@@ -14,6 +14,12 @@ internal static class FrameCellTests
         Check(FrameCellEdit.Apply(input, InputColumn.Jump, false).Held == Buttons.Reset, "Clear jump clears aliases without clearing reset");
         Check(FrameCellEdit.Apply(input, InputColumn.Jump, true).Held == input.Held, "Holding existing alias does not invent new input edges");
         Check(FrameCellEdit.Apply(input, InputColumn.X, false, .25f).X == .25f, "Analog value applies directly");
+        var menu = FrameCellEdit.Apply(input, InputColumn.Menu, true);
+        Check(menu.Down(Buttons.Menu) && menu.X == input.X && menu.Down(Buttons.Jump2), "Menu cell preserves movement inputs");
+        Check(menu.Pressed(Buttons.Menu, input) && !menu.Pressed(Buttons.Menu, menu), "Menu press toggles once across a held stroke");
+        Check(!FrameCellEdit.Apply(menu, InputColumn.Menu, false).Down(Buttons.Menu), "Clearing menu releases its action");
+        var exact = FrameCellEdit.Apply(new FrameInput { ExactEdges = true }, InputColumn.Menu, true);
+        Check(!exact.ExactEdges && exact.Pressed(Buttons.Menu, default), "Painted menu cell generates a press from recorded exact input");
         var movie = new Movie();
         for (int i = 0; i < 5; i++) movie.Frames.Add(new MovieFrame { Input = input, Expected = new StateProbe(), FixedTicks = 1 });
         FrameCellEdit.Paint(movie, 1, 2, InputColumn.Dash, true, 0);

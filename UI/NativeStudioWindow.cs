@@ -70,7 +70,7 @@ namespace Igtap.Tas.UI
                     Instance = instance, Cursor = N.LoadCursor(IntPtr.Zero, new IntPtr(32512)), Background = _background, Name = className };
                 if (N.RegisterClassEx(ref wc) == 0) throw new Win32Exception(Marshal.GetLastWin32Error());
                 registered = true;
-                IntPtr hwnd = N.CreateWindowEx(0, className, "Tas Studio 0.9.2 - in-game process", 0x02CF0000,
+                IntPtr hwnd = N.CreateWindowEx(0, className, "Tas Studio 0.9.3 - in-game process", 0x02CF0000,
                     _visible ? unchecked((int)0x80000000) : -30000, _visible ? unchecked((int)0x80000000) : -30000,
                     980, 850, IntPtr.Zero, IntPtr.Zero, instance, IntPtr.Zero);
                 if (hwnd == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());

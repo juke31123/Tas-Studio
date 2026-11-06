@@ -1,3 +1,15 @@
+# Version 0.9.3 validation
+
+All 1,045 automated checks pass, including 80 menu session checks at 30/50/280 FPS.
+The tests cover physical input after editor pause, held input without repeat toggles,
+zero PUs and stable phase while the game menu is open, recorded Resume clicks,
+savestate reconstruction with an open menu, and serialized replay with menu/guard
+verification. Native desktop tests exercise painting/discarding the Menu column,
+its held color and repaint invalidation. The production build compiles against the
+installed game assemblies without warnings/errors. Native pauseMenuScript.Update
+and its dynamic-input query were inspected in the installed game's decompiled code.
+Session tests use a fake Unity boundary; live in-game menu acceptance is still pending.
+
 # Version 0.9.2 validation
 
 Test20 exposed a missing physical input edge: Jump became held at zero-based frame

@@ -13,7 +13,7 @@ namespace Igtap.Tas
     {
         public string Id => "Tas.Studio";
         public string DisplayName => "Tas Studio";
-        public Version Version => new Version(0, 9, 2);
+        public Version Version => new Version(0, 9, 3);
         private TasSession _session;
         private GamePatches _patches;
         private LoopHooks _loop;

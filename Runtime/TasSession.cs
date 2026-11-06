@@ -38,6 +38,14 @@ namespace Igtap.Tas.Runtime
         internal void NotifySetupError(string message) { _setupError = message; }
         internal bool WaitingForLoad => Active && (Mode == SessionMode.Loading || Mode == SessionMode.Stopping);
         private FrameInput _current, _previous;
+        private bool _menuToggleRequested;
+        // Mouse Resume must not change timeScale in the middle of an editor pause.
+        // Turn it into an input on the next recorded frame instead.
+        internal void RequestMenuToggle()
+        {
+            if (Mode == SessionMode.Recording && !_playing && !_rebuildingEdit && !RestoringState)
+                _menuToggleRequested = true;
+        }
         public IgtapAdapter Adapter { get; }
         internal SimulationTimers MovementTimers { get; } = new SimulationTimers();
         public MovieStore Store { get; }
@@ -318,8 +326,6 @@ namespace Igtap.Tas.Runtime
                 }
                 if (Frozen) return;
                 if (!Adapter.IsAlive) throw new InvalidOperationException("Player was replaced or disabled during the movie.");
-                if (Adapter.Player.pauseMenu != null && Adapter.Player.pauseMenu.menuOpen)
-                    throw new InvalidOperationException("A game menu opened during the movie.");
                 if (Mode == SessionMode.Complete || Mode == SessionMode.Desync) return;
                 _fixedTicks = 0; _frameOpen = true;
                 _clock.BeginFrame();
@@ -471,6 +477,18 @@ namespace Igtap.Tas.Runtime
                         _current.Press |= _current.Held & ~_previous.Held;
                         _current.Release |= _previous.Held & ~_current.Held;
                     }
+                }
+                if (_menuToggleRequested && Mode == SessionMode.Recording && !_playing)
+                {
+                    if (!_current.ExactEdges)
+                    {
+                        _current.Press = _current.Held & ~_previous.Held;
+                        _current.Release = _previous.Held & ~_current.Held;
+                        _current.ExactEdges = true;
+                    }
+                    _current.Press |= Buttons.Menu;
+                    _current.Held |= Buttons.Menu;
+                    _menuToggleRequested = false;
                 }
             }
             catch (Exception error) { HandleError(error); }
@@ -698,6 +716,7 @@ namespace Igtap.Tas.Runtime
         }
         private void Release()
         {
+            _menuToggleRequested = false;
             Performance.Finish("released");
             _rebuildingEdit = false;
             _restoringState = null;

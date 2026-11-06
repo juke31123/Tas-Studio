@@ -4,7 +4,7 @@ using System.Collections.Generic;
 namespace Igtap.Tas.Core
 {
     [Flags]
-    public enum Buttons { None = 0, Jump = 1, Jump2 = 2, Dash = 4, Dash2 = 8, Reset = 16 }
+    public enum Buttons { None = 0, Jump = 1, Jump2 = 2, Dash = 4, Dash2 = 8, Reset = 16, Menu = 32 }
 
     // Logical actions make movies independent of the keyboard/controller bindings.
     // Keep the two jump actions separate: releasing either triggers the game's jump cut.
@@ -25,6 +25,7 @@ namespace Igtap.Tas.Core
         public float X, Y, VelocityX, VelocityY, MomentumX, MomentumY;
         public float RenderX, RenderY, BodyVelocityX, BodyVelocityY;
         public bool Grounded, OnWall, Dashing, FacingRight;
+        public bool MenuOpen, GamePaused;
         public int AirJumps, AirDashes, Cutscene;
         public string MovementHash = "";
         // Recorded values provide actionable field-level differences.
@@ -42,7 +43,7 @@ namespace Igtap.Tas.Core
 
     public sealed class Movie
     {
-        public const int CurrentVersion = 5;
+        public const int CurrentVersion = 6;
         public const int MaxFrames = 2_000_000;
         public int FormatVersion = CurrentVersion;
         public string Name = "Untitled";
@@ -88,10 +89,10 @@ namespace Igtap.Tas.Core
             ValidateProbe(StartState);
             foreach (var frame in Frames)
             {
-                if (frame == null || !Finite(frame.Input.X) || !Finite(frame.Input.Y) || Math.Abs(frame.Input.X) > 1 || Math.Abs(frame.Input.Y) > 1 || ((int)frame.Input.Held & ~31) != 0)
+                if (frame == null || !Finite(frame.Input.X) || !Finite(frame.Input.Y) || Math.Abs(frame.Input.X) > 1 || Math.Abs(frame.Input.Y) > 1 || ((int)frame.Input.Held & ~63) != 0)
                     throw new InvalidOperationException("Invalid input frame.");
                 if (frame.FixedTicks < -1 || frame.FixedTicks > 1000) throw new InvalidOperationException("Invalid physics tick count.");
-                if ((((int)frame.Input.Press | (int)frame.Input.Release) & ~31) != 0 || double.IsNaN(frame.PuPhase) ||
+                if ((((int)frame.Input.Press | (int)frame.Input.Release) & ~63) != 0 || double.IsNaN(frame.PuPhase) ||
                     (frame.PuPhase != -1 && (frame.PuPhase < 0 || frame.PuPhase >= FrameTiming.PuSeconds)))
                     throw new InvalidOperationException("Invalid frame timing or button edges.");
                 ValidateProbe(frame.Expected);
@@ -113,6 +114,7 @@ namespace Igtap.Tas.Core
             if (expected == null) return null;
             if (actual == null) return "Player missing";
             if (!Movie.Finite(actual.X) || !Movie.Finite(actual.Y) || !Movie.Finite(actual.RenderX) || !Movie.Finite(actual.RenderY) || !Movie.Finite(actual.BodyVelocityX) || !Movie.Finite(actual.BodyVelocityY) || !Movie.Finite(actual.VelocityX) || !Movie.Finite(actual.VelocityY) || !Movie.Finite(actual.MomentumX) || !Movie.Finite(actual.MomentumY)) return "Non-finite player state";
+            if (expected.MenuOpen != actual.MenuOpen || expected.GamePaused != actual.GamePaused) return "Game pause/menu state differs";
             if (Math.Abs(expected.X - actual.X) > tolerance || Math.Abs(expected.Y - actual.Y) > tolerance) return "Position differs";
             if (Math.Abs(expected.RenderX - actual.RenderX) > tolerance || Math.Abs(expected.RenderY - actual.RenderY) > tolerance) return "Interpolated position differs";
             if (Math.Abs(expected.BodyVelocityX - actual.BodyVelocityX) > tolerance || Math.Abs(expected.BodyVelocityY - actual.BodyVelocityY) > tolerance) return "Physics velocity differs";

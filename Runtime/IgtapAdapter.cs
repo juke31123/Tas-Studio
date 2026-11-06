@@ -15,7 +15,9 @@ namespace Igtap.Tas.Runtime
     {
         private const BindingFlags Fields = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
         private static readonly string[] ActionFields = { "moveAction", "jumpAction", "jumpAction2", "dashAction", "dashAction2", "resetAction" };
-        private static readonly Buttons[] ActionButtons = { Buttons.None, Buttons.Jump, Buttons.Jump2, Buttons.Dash, Buttons.Dash2, Buttons.Reset };
+        private static readonly Buttons[] ActionButtons = { Buttons.None, Buttons.Jump, Buttons.Jump2, Buttons.Dash, Buttons.Dash2, Buttons.Reset, Buttons.Menu };
+        private static readonly FieldInfo PauseActionField = typeof(pauseMenuScript).GetField("pauseAction", Fields)
+            ?? throw new NotSupportedException("Unsupported game build: pauseMenuScript.pauseAction is missing.");
         // Transient movement state and physics parameters, excluding cosmetic audio/particles.
         private static readonly string[] ProbeFields = {
             "coyoteFrames", "wallCoyoteFrames", "wallCoyoteDir", "dashBuffer", "jumpBuffer", "jumpCutBuffer",
@@ -27,7 +29,7 @@ namespace Igtap.Tas.Runtime
             "maxAirJumps", "maxAirDashes", "movingPlatformVelocity", "isBlueActiveOnRespawn"
         };
         private readonly FieldInfo[] _probeFields;
-        private readonly InputAction[] _actions = new InputAction[6];
+        private readonly InputAction[] _actions = new InputAction[7];
         private Rigidbody2D _body;
         public Movement Player { get; private set; }
         public bool IsAlive => Player != null && Player.isActiveAndEnabled;
@@ -77,11 +79,14 @@ namespace Igtap.Tas.Runtime
             if (Player.gameObject.scene.handle != UnityEngine.SceneManagement.SceneManager.GetActiveScene().handle) return false;
             _body = Player.GetComponent<Rigidbody2D>();
             if (_body == null) return false;
-            for (int i = 0; i < _actions.Length; i++)
+            for (int i = 0; i < ActionFields.Length; i++)
             {
                 _actions[i] = RequireField(ActionFields[i]).GetValue(Player) as InputAction;
                 if (_actions[i] == null) return false; // Movement.Start has not run yet.
             }
+            if (Player.pauseMenu == null) return false;
+            _actions[6] = PauseActionField.GetValue(Player.pauseMenu) as InputAction;
+            if (_actions[6] == null) return false;
             return true;
         }
         public void PrepareSimulation()
@@ -147,6 +152,7 @@ namespace Igtap.Tas.Runtime
                 MomentumX = p.momentum.x, MomentumY = p.momentum.y,
                 Grounded = p.onGround, OnWall = p.OnWall, Dashing = p.dashActive, FacingRight = p.facingRight,
                 AirJumps = p.airJumpsLeft, AirDashes = p.airDashesLeft, Cutscene = (int)p.cutsceneMode,
+                MenuOpen = p.pauseMenu != null && p.pauseMenu.menuOpen, GamePaused = p.GamePaused,
                 MovementHash = Hash(Encoding.UTF8.GetBytes(builder.ToString())), MovementFields = fields
             };
         }

@@ -2,10 +2,11 @@
 
 TAS authoring tools for **IGTAP: an Incremental Game That's Also a Platformer**, using the Recharge mod loader.
 
-Author: **Juke**. Current version: **0.9.2**. Mod ID: `Tas.Studio`. Entry assembly: `TasStudio.dll`.
+Author: **Juke**. Current version: **0.9.3**. Mod ID: `Tas.Studio`. Entry assembly: `TasStudio.dll`.
 
 ## Features
 
+- Record/replay the game's Pause action or edit it in the **Menu** frame column. Game-menu pause freezes physics while TAS frames continue; TAS pause/step remains separate. Requires new format-6 movies.
 - Change TAS shortcuts from **Mods > Tas Studio > Keybinds**. Bindings save automatically, support unbinding and restoring defaults, and appear on the desktop buttons. The F5-F10 shortcuts below are defaults.
 - Choose the game's recording FPS while physics stays at **50 PUs per game second**. Replay locks the recorded FPS. Frames between PUs retain frame-based inputs; PU rows are red and Stats shows the countdown to the next PU. See [frame and physics timing](docs/FRAME-TIMING.md).
 - Separate native **Frame Editor** with clickable/paintable input columns, in-cell analog editing, row insertion/deletion/clearing and undo. Edits remain pending until Save edits; saving past-frame changes rebuilds state while preserving future inputs. See [Frame Editor controls](docs/FRAME-EDITOR.md).
@@ -37,7 +38,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -ManagedDir "C:\
 
 Use `-Offline` after downloading Harmony. To use an existing dependency without downloading it, supply both `-HarmonyPath` (the net472 fat-build DLL) and `-HarmonyLicensePath` (its LICENSE file).
 
-The build produces `artifacts/Tas.Studio/` and `artifacts/Tas-Studio-0.9.2-clean.zip`. Follow `INSTALL.md` to install the package. Build outputs and downloaded dependencies are ignored by Git.
+The build produces `artifacts/Tas.Studio/` and `artifacts/Tas-Studio-0.9.3-clean.zip`. Follow `INSTALL.md` to install the package. Build outputs and downloaded dependencies are ignored by Git.
 
 ## Source layout
 

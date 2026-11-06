@@ -34,7 +34,8 @@ namespace Igtap.Tas.UI
         private bool _stroke, _strokeHeld, _follow = true;
         private bool _saveAfterCell;
         private const int GridY = 140, Header = 28, RowHeight = 24;
-        private static readonly string[] Titles = { "Frame", "U", "D", "L", "R", "Jump", "Dash", "Reset", "X", "Y" };
+        private static readonly string[] Titles = { "Frame", "U", "D", "L", "R", "Jump", "Dash", "Reset", "X", "Y", "Menu" };
+        private static bool IsAxis(int column) => column == 8 || column == 9;
         internal IntPtr Handle => _handle;
         public NativeFrameEditor(StudioChannel channel, IntPtr owner, bool visible)
         { _channel = channel; _owner = owner; _visible = visible; _procedure = Procedure; }
@@ -94,7 +95,7 @@ namespace Igtap.Tas.UI
         private int Width { get { N.GetClientRect(_handle, out var r); return (int)(r.Right / _scale); } }
         private int Height { get { N.GetClientRect(_handle, out var r); return (int)(r.Bottom / _scale); } }
         private int VisibleRows => Math.Max(1, (Height - GridY - Header - 70) / RowHeight);
-        private int CellWidth => Math.Max(40, (Width - 32 - 88) / 9);
+        private int CellWidth => Math.Max(40, (Width - 32 - 88) / (Titles.Length - 1));
         private N.Rect Cell(int row, int column)
         {
             int left = column == 0 ? 16 : 104 + (column - 1) * CellWidth;
@@ -157,7 +158,7 @@ namespace Igtap.Tas.UI
                         else if (key == 45) RowCommand("insertRows");
                         else if (key == 90 && N.GetKeyState(17) < 0) Send(new Command { Action = "undo" });
                         else if (key == 83 && N.GetKeyState(17) < 0) Button(12);
-                        else if (key == 32 && Editable && _column < 8 && TryRow(_anchor, out var selected))
+                        else if (key == 32 && Editable && !IsAxis(_column) && TryRow(_anchor, out var selected))
                             Send(new Command { Action = "paint", Start = Math.Min(_anchor, _end), Count = Math.Abs(_end - _anchor) + 1,
                                 Column = _column - 1, CellHeld = !Held(selected, _column), Revision = _snapshot.Revision });
                         else if (key == 38 || key == 40) { _end = Math.Max(0, Math.Min(_snapshot?.Frames ?? 0, _end + (key == 38 ? -1 : 1))); if (N.GetKeyState(16) >= 0) _anchor = _end; ScrollTo(Math.Max(0, _end - VisibleRows / 2)); }
@@ -213,7 +214,7 @@ namespace Igtap.Tas.UI
         {
             int x = (int)((short)(lp.ToInt64() & 0xffff) / _scale), y = (int)((short)((lp.ToInt64() >> 16) & 0xffff) / _scale);
             row = _top + (y - GridY - Header) / RowHeight; column = x < 104 ? 0 : 1 + (x - 104) / CellWidth;
-            return y >= GridY + Header && row < _top + VisibleRows && row <= (_snapshot?.Frames ?? -1) && x >= 16 && column < 10;
+            return y >= GridY + Header && row < _top + VisibleRows && row <= (_snapshot?.Frames ?? -1) && x >= 16 && column < Titles.Length;
         }
         private void MouseDown(IntPtr lp, bool twice)
         {
@@ -224,7 +225,7 @@ namespace Igtap.Tas.UI
             _column = column; _anchor = _end = row;
             if (!Editable) { _localError = "Pause the run and wait for any pending edit."; Invalidate(); return; }
             if (!TryRow(row, out var frame)) return;
-            if (column >= 8) { if (twice) OpenCell(row, column, frame); Invalidate(); return; }
+            if (IsAxis(column)) { if (twice) OpenCell(row, column, frame); Invalidate(); return; }
             _stroke = true; _strokeStart = _strokeEnd = row; _strokeColumn = column;
             _strokeRevision = _snapshot.Revision; _strokeHeld = !Held(frame, column);
             N.SetCapture(_handle); Invalidate();
@@ -275,7 +276,7 @@ namespace Igtap.Tas.UI
             if (index < 0 || index >= _snapshot.Timeline.Length) return false;
             frame = _snapshot.Timeline[index]; return true;
         }
-        private static bool Held(FrameRow f, int column) => column == 1 ? f.Y > 0 : column == 2 ? f.Y < 0 : column == 3 ? f.X < 0 : column == 4 ? f.X > 0 : column == 5 ? f.Jump : column == 6 ? f.Dash : f.Reset;
+        private static bool Held(FrameRow f, int column) => column == 1 ? f.Y > 0 : column == 2 ? f.Y < 0 : column == 3 ? f.X < 0 : column == 4 ? f.X > 0 : column == 5 ? f.Jump : column == 6 ? f.Dash : column == 7 ? f.Reset : column == 10 && f.Menu;
         private void ScrollTo(int top)
         {
             if (_stroke || _cellEdit != IntPtr.Zero) return;
@@ -332,7 +333,7 @@ namespace Igtap.Tas.UI
             for (int i = 0; i < a.Timeline.Length; i++)
             {
                 var x = a.Timeline[i]; var y = b.Timeline[i];
-                if (x.Frame != y.Frame || x.Pus != y.Pus || x.X != y.X || x.Y != y.Y || x.Jump != y.Jump || x.Dash != y.Dash || x.Reset != y.Reset || x.Verified != y.Verified) return false;
+                if (x.Frame != y.Frame || x.Pus != y.Pus || x.X != y.X || x.Y != y.Y || x.Jump != y.Jump || x.Dash != y.Dash || x.Reset != y.Reset || x.Menu != y.Menu || x.Verified != y.Verified) return false;
             }
             return true;
         }
@@ -373,7 +374,7 @@ namespace Igtap.Tas.UI
                     N.SetBkMode(dc, 1); N.SetTextColor(dc, NativeTheme.Text);
                     N.FillRect(dc, ref background, _brushes[0]);
                     _theme.Box(dc, Rect(16, 54, Width - 32, 76), NativeTheme.Panel);
-                    for (int c = 0; c < 10; c++)
+                    for (int c = 0; c < Titles.Length; c++)
                     {
                         var rect = Cell(_top, c); rect.Top -= (int)(Header * _scale); rect.Bottom = rect.Top + (int)(Header * _scale);
                         N.FillRect(dc, ref rect, _brushes[2]); N.DrawText(dc, Titles[c], -1, ref rect, 0x25);
@@ -382,10 +383,10 @@ namespace Igtap.Tas.UI
                     {
                         int row = _top + i; if (_snapshot == null || row > _snapshot.Frames) break;
                         bool loaded = TryRow(row, out var f);
-                        for (int c = 0; c < 10; c++)
+                        for (int c = 0; c < Titles.Length; c++)
                         {
                             var rect = Cell(row, c); rect.Right--; rect.Bottom--;
-                            bool held = loaded && c > 0 && c < 8 && Held(f, c);
+                            bool held = loaded && c > 0 && !IsAxis(c) && Held(f, c);
                             if (_stroke && c == _strokeColumn && row >= Math.Min(_strokeStart, _strokeEnd) && row <= Math.Max(_strokeStart, _strokeEnd)) held = _strokeHeld;
                             int brush = held ? 3 : row == _snapshot.Cursor ? 4 : row >= Math.Min(_anchor, _end) && row <= Math.Max(_anchor, _end) ? 2 : i % 2 == 0 ? 0 : 1;
                             if (loaded && f.Pus > 0) brush = held ? 7 : row == _snapshot.Cursor ? 8 :

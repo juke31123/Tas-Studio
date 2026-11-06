@@ -48,7 +48,11 @@ it does not skip input rows to catch up.
 
 ## Movie and checkpoint data
 
-Format 5, bootstrap 4, timing protocol 1. Old files are rejected without conversion.
+Format 6, bootstrap 4, timing protocol 1. Old files are rejected without conversion.
+The Menu button records the game's Pause action. The native menu Update consumes
+its dynamic-update press at the normal callback position. Menu-open frames keep
+advancing with timeScale=0 and no PUs; the native close method restores timeScale
+and sets the player's GamePaused guard. Both menu state and that guard are verified.
 The file stores recording FPS, start PU phase, each row's observed PU count and
 phase, inputs and state probes. Physical inputs retain exact press/release edges,
 including a quick press and release during a single input update. Button painting

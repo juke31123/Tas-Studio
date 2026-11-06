@@ -1,12 +1,12 @@
 using System;
 namespace Igtap.Tas.Core
 {
-    public enum InputColumn { Up, Down, Left, Right, Jump, Dash, Reset, X, Y }
+    public enum InputColumn { Up, Down, Left, Right, Jump, Dash, Reset, X, Y, Menu }
     public static class FrameCellEdit
     {
         public static FrameInput Apply(FrameInput input, InputColumn column, bool held, float value = 0)
         {
-            if (column == InputColumn.Jump || column == InputColumn.Dash || column == InputColumn.Reset)
+            if (column == InputColumn.Jump || column == InputColumn.Dash || column == InputColumn.Reset || column == InputColumn.Menu)
             { input.ExactEdges = false; input.Press = input.Release = Buttons.None; }
             switch (column)
             {
@@ -17,6 +17,7 @@ namespace Igtap.Tas.Core
                 case InputColumn.Jump: input.Held = Set(input.Held, Buttons.Jump | Buttons.Jump2, Buttons.Jump, held); break;
                 case InputColumn.Dash: input.Held = Set(input.Held, Buttons.Dash | Buttons.Dash2, Buttons.Dash, held); break;
                 case InputColumn.Reset: input.Held = Set(input.Held, Buttons.Reset, Buttons.Reset, held); break;
+                case InputColumn.Menu: input.Held = Set(input.Held, Buttons.Menu, Buttons.Menu, held); break;
                 case InputColumn.X: Validate(value); input.X = value; break;
                 case InputColumn.Y: Validate(value); input.Y = value; break;
                 default: throw new ArgumentOutOfRangeException(nameof(column));

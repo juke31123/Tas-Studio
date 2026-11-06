@@ -1,4 +1,13 @@
-# Tas Studio 0.9.2
+# Tas Studio 0.9.3
+
+The game's Pause action (normally Escape) is now recorded and replayed. You can
+also paint **Menu** cells in the Frame Editor and use Save edits to apply them.
+A press opens the game menu; release it before the next press to close the menu.
+This is separate from TAS pause: movie frames continue while the menu freezes PUs.
+Clicking the game's Resume button queues a recorded menu press on the next frame;
+if the TAS is paused, step or resume it to apply that click. Other menu navigation
+and settings changes are not recorded TAS inputs. Movie format is now 6; create
+new runs with this version. Existing saved files are preserved but incompatible.
 
 Fixes physical jump/dash/reset presses and releases lost while frame advancing.
 Hold the intended input and step: changes since the last simulated frame now reach

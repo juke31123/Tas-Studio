@@ -15,6 +15,7 @@ namespace Igtap.Tas.Runtime
         private const string HarmonyId = "Tas.Studio.runtime";
         private readonly Harmony _harmony = new Harmony(HarmonyId);
         internal static TasSession Session;
+        private static bool _menuUpdate;
         public int PatchedMethods { get; private set; }
         private static readonly BindingFlags Declared = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly;
 
@@ -39,12 +40,15 @@ namespace Igtap.Tas.Runtime
                     bool load = typeof(SaveableObject).IsAssignableFrom(type) && method.Name == "load";
                     bool playerStart = type == typeof(Movement) && method.Name == "Start";
                     bool footstep = type == typeof(PlayerAnimationEventProxy) && method.Name == "RelayFootstep";
-                    if (!tick && !iterator && !clock && !movement && !save && !load && !playerStart && !footstep) continue;
-                    var prefix = save ? nameof(AllowSave) : load ? nameof(AllowLoad) : playerStart ? nameof(PreparePlayerStart) : footstep ? nameof(AllowAnimationEvent) : zoneIterator ? nameof(AllowZoneCoroutine) : iterator ? nameof(AllowCoroutine) : tick ? nameof(AllowTick) : null;
+                    bool menuToggle = type == typeof(pauseMenuScript) && method.Name == "menuButtonPressed";
+                    bool menuUpdate = type == typeof(pauseMenuScript) && method.Name == "Update";
+                    if (!tick && !iterator && !clock && !movement && !save && !load && !playerStart && !footstep && !menuToggle) continue;
+                    var prefix = menuToggle ? nameof(AllowMenuButton) : save ? nameof(AllowSave) : load ? nameof(AllowLoad) : playerStart ? nameof(PreparePlayerStart) : footstep ? nameof(AllowAnimationEvent) : zoneIterator ? nameof(AllowZoneCoroutine) : iterator ? nameof(AllowCoroutine) : tick ? nameof(AllowTick) : null;
                     _harmony.Patch(method,
                         prefix: prefix == null ? null : new HarmonyMethod(typeof(GamePatches), prefix),
                         postfix: zoneIterator ? new HarmonyMethod(typeof(GamePatches), nameof(ZoneCoroutineAdvanced)) : playerStart ? new HarmonyMethod(typeof(GamePatches), nameof(PlayerStarted)) : movement && !method.IsStatic ? new HarmonyMethod(typeof(GamePatches), nameof(MovementCalled)) : null,
-                        transpiler: zoneIterator ? new HarmonyMethod(typeof(GamePatches), nameof(RewriteZoneWaits)) : clock || movement ? new HarmonyMethod(typeof(GamePatches), nameof(RewriteCalls)) : null);
+                        transpiler: zoneIterator ? new HarmonyMethod(typeof(GamePatches), nameof(RewriteZoneWaits)) : clock || movement ? new HarmonyMethod(typeof(GamePatches), nameof(RewriteCalls)) : null,
+                        finalizer: menuUpdate ? new HarmonyMethod(typeof(GamePatches), nameof(MenuUpdateFinished)) : null);
                     PatchedMethods++;
                 }
             }
@@ -56,10 +60,19 @@ namespace Igtap.Tas.Runtime
             var s = Session;
             if (s == null || !s.Active) return true;
             if (s.Frozen) return false;
-            // Pause/menu input is outside the movie schema. TAS controls own pausing.
-            if (__instance is pauseMenuScript) return false;
+            // The game's menu update consumes the recorded Pause action at its
+            // native Update position, including while game timeScale is zero.
+            if (__instance is pauseMenuScript && __originalMethod.Name == "Update") _menuUpdate = true;
             if (__instance is Movement && __originalMethod.Name == "FixedUpdate") s.CountFixedTick();
             return true;
+        }
+        private static Exception MenuUpdateFinished(Exception __exception) { _menuUpdate = false; return __exception; }
+        private static bool AllowMenuButton()
+        {
+            if (Session == null || !Session.Active || Session.WaitingForLoad || Session.Mode == SessionMode.Warmup) return true;
+            if (_menuUpdate && !Session.Frozen) return true;
+            Session.RequestMenuToggle();
+            return false;
         }
         private static bool AllowCoroutine(ref bool __result)
         {
@@ -135,6 +148,7 @@ namespace Igtap.Tas.Runtime
                     if (method.DeclaringType == typeof(InputAction))
                     {
                         if (method.Name == "WasPressedThisFrame") replacement = nameof(Pressed);
+                        if (method.Name == "WasPressedThisDynamicUpdate") replacement = nameof(PressedDynamic);
                         if (method.Name == "WasReleasedThisFrame") replacement = nameof(Released);
                         if (method.Name == "IsPressed") replacement = nameof(Held);
                         if (method.Name == "ReadValue" && method.IsGenericMethod && method.GetGenericArguments()[0] == typeof(Vector2)) replacement = nameof(Move);
@@ -236,6 +250,12 @@ namespace Igtap.Tas.Runtime
             var button = s != null && s.Active ? s.Adapter.ButtonFor(action) : Core.Buttons.None;
             return button != Core.Buttons.None ? !s.Frozen && s.CurrentInput.Released(button, s.PreviousInput) : action.WasReleasedThisFrame();
         }
-        public void Dispose() { _harmony.UnpatchAll(HarmonyId); Session = null; }
+        public static bool PressedDynamic(InputAction action)
+        {
+            var s = Session;
+            var button = s != null && s.Active ? s.Adapter.ButtonFor(action) : Core.Buttons.None;
+            return button != Core.Buttons.None ? !s.Frozen && s.CurrentInput.Pressed(button, s.PreviousInput) : action.WasPressedThisDynamicUpdate();
+        }
+        public void Dispose() { _harmony.UnpatchAll(HarmonyId); Session = null; _menuUpdate = false; }
     }
 }
