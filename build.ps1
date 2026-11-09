@@ -2,7 +2,9 @@ param(
     [Parameter(Mandatory = $true)][string]$ManagedDir,
     [string]$HarmonyPath,
     [string]$HarmonyLicensePath,
-    [switch]$Offline
+    [switch]$Offline,
+    [switch]$PortableBruteforce,
+    [string]$UpstreamRoot
 )
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
@@ -28,10 +30,29 @@ dotnet restore $project --configfile (Join-Path $root 'NuGet.Config') --ignore-f
 if ($LASTEXITCODE -ne 0) { throw 'Restore failed.' }
 dotnet build $project --no-restore -c Release "-p:ManagedDir=$ManagedDir" "-p:HarmonyPath=$HarmonyPath"
 if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
+$solverProject = Join-Path $root 'Solver.Cli\TasStudio.Solver.csproj'
+dotnet restore $solverProject --configfile (Join-Path $root 'NuGet.Config') --ignore-failed-sources
+if ($LASTEXITCODE -ne 0) { throw 'Solver restore failed.' }
+dotnet build $solverProject --no-restore -c Release "-p:ManagedDir=$ManagedDir"
+if ($LASTEXITCODE -ne 0) { throw 'Solver build failed.' }
 $manifest = Get-Content -LiteralPath (Join-Path $root 'mod.json') -Raw | ConvertFrom-Json
 $output = Join-Path $root 'artifacts\Tas.Studio'
 New-Item -ItemType Directory -Force $output | Out-Null
 $packageFiles = @('TasStudio.dll', '0Harmony.dll', 'mod.json', 'INSTALL.md', 'Harmony-LICENSE.txt')
+if ($PortableBruteforce) {
+    if (!$UpstreamRoot) { throw 'PortableBruteforce requires the pinned local reference checkout via -UpstreamRoot.' }
+    $portableOutput = Join-Path $output 'Bruteforce'
+    & (Join-Path $root 'build-bruteforce.ps1') -UpstreamRoot $UpstreamRoot -ManagedDir $ManagedDir -OutputDirectory $portableOutput
+    $portable = Get-Content -LiteralPath (Join-Path $portableOutput 'package.json') -Raw | ConvertFrom-Json
+    $packageFiles += 'Bruteforce/package.json'
+    foreach ($entry in $portable.Files) { $packageFiles += 'Bruteforce/' + $entry.Path }
+}
+$solverOutput = Join-Path $output 'Solver'
+New-Item -ItemType Directory -Force $solverOutput | Out-Null
+foreach ($name in @('TasStudio.Solver.exe', 'TasStudio.Solver.dll', 'TasStudio.Solver.deps.json', 'TasStudio.Solver.runtimeconfig.json', 'Newtonsoft.Json.dll', 'Newtonsoft-LICENSE.txt')) {
+    Copy-Item -LiteralPath (Join-Path $root ('Solver.Cli\bin\Release\net10.0\' + $name)) -Destination $solverOutput
+    $packageFiles += 'Solver/' + $name
+}
 # Remove only obsolete companion binaries from this build output. Preserve data.
 foreach ($name in @('TasStudio.Desktop.exe', 'TasStudio.Desktop.dll', 'TasStudio.Desktop.deps.json', 'TasStudio.Desktop.runtimeconfig.json')) {
     $obsolete = Join-Path $output ('Desktop\' + $name)

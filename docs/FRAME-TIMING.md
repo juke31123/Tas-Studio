@@ -10,6 +10,15 @@ Each editor row is one game frame, including frames with no PU. Frames containin
 observed PUs have a red background; held cells use a brighter red. Zero-PU rows
 retain the usual colors. Unknown future rows and edited suffixes are not labelled
 as observed PUs until executed. Save edits still explicitly starts rebuilding.
+After an edit, known previous PU rows remain red with a `~` marker until they are
+re-executed. This editor-only history never participates in replay verification.
+Playback refreshes missing PU observations even when edited rows have no movement
+reference probes. Re-recording an unchanged input no longer clears later timing.
+
+Step PU (default F11) runs complete frames until one contains an observed PU and
+then pauses. It does not split a frame that contains multiple PUs. Temporary game
+hitstop is traversed, but an open menu stops the step, and a five-second movie-frame
+limit prevents an endless advance if physics never resumes.
 
 Player stats show Frames until next PU, inclusive: 1 means the next frame contains
 a PU. The countdown assumes the current game time scale continues. During a game
@@ -48,7 +57,7 @@ it does not skip input rows to catch up.
 
 ## Movie and checkpoint data
 
-Format 6, bootstrap 4, timing protocol 1. Old files are rejected without conversion.
+Format 7, bootstrap 4, timing protocol 1. Old files are rejected without conversion.
 The Menu button records the game's Pause action. The native menu Update consumes
 its dynamic-update press at the normal callback position. Menu-open frames keep
 advancing with timeScale=0 and no PUs; the native close method restores timeScale

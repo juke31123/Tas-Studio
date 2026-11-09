@@ -38,12 +38,15 @@ namespace Igtap.Tas.Core
         // Null means the frame has been authored/edited and is not yet verified.
         public StateProbe Expected;
         public int FixedTicks = -1;
+        // Editor-only history. Never used for replay verification or persisted as fact.
+        [Newtonsoft.Json.JsonIgnore] public int PreviousFixedTicks = -1;
         public double PuPhase = -1;
+        public WorldWitness World;
     }
 
     public sealed class Movie
     {
-        public const int CurrentVersion = 6;
+        public const int CurrentVersion = 7;
         public const int MaxFrames = 2_000_000;
         public int FormatVersion = CurrentVersion;
         public string Name = "Untitled";
@@ -67,8 +70,23 @@ namespace Igtap.Tas.Core
         public List<int> WarmupFixedTicks = new List<int>();
         public int Rerecords;
         public StateProbe StartState;
+        public WorldWitness StartWorld;
+        public bool AtomDoorPresent;
+        public int AtomDoorValue;
         public string Notes = "";
         public List<MovieFrame> Frames = new List<MovieFrame>();
+
+        // Probes/witnesses are immutable after capture. Clone the mutable rows,
+        // not thousands of dictionaries through a JSON roundtrip on every click.
+        public Movie CopyForEdit()
+        {
+            var copy = (Movie)MemberwiseClone();
+            copy.Frames = Frames.ConvertAll(f => new MovieFrame { Input = f.Input, Expected = f.Expected,
+                FixedTicks = f.FixedTicks, PreviousFixedTicks = f.PreviousFixedTicks, PuPhase = f.PuPhase, World = f.World });
+            copy.WarmupFixedTicks = new List<int>(WarmupFixedTicks);
+            copy.StartSetup = StartSetup?.Clone();
+            return copy;
+        }
 
         public void Validate()
         {
@@ -87,6 +105,7 @@ namespace Igtap.Tas.Core
             if (WarmupFixedTicks == null || WarmupFixedTicks.Count > WarmupFrames || WarmupFixedTicks.Exists(n => n < 0 || n > 1000)) throw new InvalidOperationException("Invalid warmup tick schedule.");
             if (Frames == null || Frames.Count > MaxFrames) throw new InvalidOperationException("Invalid movie length.");
             ValidateProbe(StartState);
+            StartWorld?.Validate();
             foreach (var frame in Frames)
             {
                 if (frame == null || !Finite(frame.Input.X) || !Finite(frame.Input.Y) || Math.Abs(frame.Input.X) > 1 || Math.Abs(frame.Input.Y) > 1 || ((int)frame.Input.Held & ~63) != 0)
@@ -96,6 +115,7 @@ namespace Igtap.Tas.Core
                     (frame.PuPhase != -1 && (frame.PuPhase < 0 || frame.PuPhase >= FrameTiming.PuSeconds)))
                     throw new InvalidOperationException("Invalid frame timing or button edges.");
                 ValidateProbe(frame.Expected);
+                frame.World?.Validate();
             }
         }
 

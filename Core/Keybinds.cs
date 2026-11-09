@@ -6,16 +6,16 @@ using Newtonsoft.Json;
 
 namespace Igtap.Tas.Core
 {
-    public enum TasShortcut { Editors, Pause, Step, Stop, Savestates, Stats }
+    public enum TasShortcut { Editors, Pause, Step, Stop, Savestates, Stats, StepPu }
 
     // Platform-independent bindings. Snapshots receive a copy, never the live settings.
     public sealed class Keybinds
     {
-        public static readonly string[] Titles = { "Open desktop editors", "Pause / resume", "Step one frame", "Stop + reload", "Open savestates", "Open player stats" };
+        public static readonly string[] Titles = { "Open desktop editors", "Pause / resume", "Step one frame", "Stop + reload", "Open savestates", "Open player stats", "Step to next PU" };
         public static readonly string[] Allowed = Enumerable.Range(1, 12).Select(n => "F" + n)
             .Concat(Enumerable.Range('A', 26).Select(n => ((char)n).ToString()))
             .Concat(Enumerable.Range(0, 10).Select(n => "Digit" + n)).ToArray();
-        private string[] _keys = { "F5", "F6", "F7", "F8", "F9", "F10" };
+        private string[] _keys = { "F5", "F6", "F7", "F8", "F9", "F10", "F11" };
         public string this[TasShortcut action] => _keys[(int)action];
         public string Label(TasShortcut action) => Display(this[action]);
         public static string Display(string key) => string.IsNullOrEmpty(key) ? "Unbound" : key.StartsWith("Digit", StringComparison.Ordinal) ? key.Substring(5) : key;
@@ -45,12 +45,18 @@ namespace Igtap.Tas.Core
             if (!File.Exists(path)) return new Keybinds();
             var data = JsonConvert.DeserializeObject<Dictionary<string, string>>(File.ReadAllText(path),
                 new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.None, MaxDepth = 8 });
-            if (data == null || data.Count != Titles.Length) throw new InvalidDataException("Invalid keybind settings.");
+            if (data == null || data.Count < Titles.Length - 1 || data.Count > Titles.Length ||
+                data.Keys.Any(name => !Enum.TryParse<TasShortcut>(name, out var action) || action.ToString() != name))
+                throw new InvalidDataException("Invalid keybind settings.");
             var result = new Keybinds { _keys = new string[Titles.Length] };
             for (int i = 0; i < Titles.Length; i++)
             {
                 var action = (TasShortcut)i;
-                if (!data.TryGetValue(action.ToString(), out var key)) throw new InvalidDataException("Missing shortcut: " + action);
+                if (!data.TryGetValue(action.ToString(), out var key))
+                {
+                    if (action != TasShortcut.StepPu) throw new InvalidDataException("Missing shortcut: " + action);
+                    key = data.Values.Contains("F11") ? "" : "F11";
+                }
                 result.Assign(action, key);
             }
             return result;

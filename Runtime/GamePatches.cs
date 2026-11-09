@@ -13,6 +13,8 @@ namespace Igtap.Tas.Runtime
     internal sealed class GamePatches : IDisposable
     {
         private const string HarmonyId = "Tas.Studio.runtime";
+        private const string OwnerKey = "Tas.Studio.exclusive-recording-runtime";
+        private bool _ownsRuntime;
         private readonly Harmony _harmony = new Harmony(HarmonyId);
         internal static TasSession Session;
         private static bool _menuUpdate;
@@ -21,6 +23,11 @@ namespace Igtap.Tas.Runtime
 
         public void Install(TasSession session)
         {
+            // The standalone recorder links this runtime into another assembly.
+            // Two owners would rewrite input/time twice and corrupt recordings.
+            if(AppDomain.CurrentDomain.GetData(OwnerKey)!=null)
+                throw new InvalidOperationException("Another Tas Studio/Validation Recorder runtime is active. Enable only one of these mods.");
+            AppDomain.CurrentDomain.SetData(OwnerKey,this); _ownsRuntime=true;
             Session = session;
             try
             {
@@ -32,6 +39,7 @@ namespace Igtap.Tas.Runtime
                         (method.Name == "Update" || method.Name == "FixedUpdate" || method.Name == "LateUpdate");
                     bool iterator = typeof(IEnumerator).IsAssignableFrom(type) && method.Name == "MoveNext" && method.ReturnType == typeof(bool);
                     bool zoneIterator = iterator && BelongsTo(type, typeof(ZoneLoader));
+                    bool moverIterator = iterator && BelongsTo(type, typeof(PlatformMover));
                     bool clock = UsesClockOrInput(method);
                     // Jump/respawn helpers schedule timers outside Update too.
                     bool movement = type == typeof(Movement);
@@ -46,7 +54,7 @@ namespace Igtap.Tas.Runtime
                     var prefix = menuToggle ? nameof(AllowMenuButton) : save ? nameof(AllowSave) : load ? nameof(AllowLoad) : playerStart ? nameof(PreparePlayerStart) : footstep ? nameof(AllowAnimationEvent) : zoneIterator ? nameof(AllowZoneCoroutine) : iterator ? nameof(AllowCoroutine) : tick ? nameof(AllowTick) : null;
                     _harmony.Patch(method,
                         prefix: prefix == null ? null : new HarmonyMethod(typeof(GamePatches), prefix),
-                        postfix: zoneIterator ? new HarmonyMethod(typeof(GamePatches), nameof(ZoneCoroutineAdvanced)) : playerStart ? new HarmonyMethod(typeof(GamePatches), nameof(PlayerStarted)) : movement && !method.IsStatic ? new HarmonyMethod(typeof(GamePatches), nameof(MovementCalled)) : null,
+                        postfix: zoneIterator ? new HarmonyMethod(typeof(GamePatches), nameof(ZoneCoroutineAdvanced)) : moverIterator ? new HarmonyMethod(typeof(GamePatches), nameof(MoverCoroutineAdvanced)) : playerStart ? new HarmonyMethod(typeof(GamePatches), nameof(PlayerStarted)) : movement && !method.IsStatic ? new HarmonyMethod(typeof(GamePatches), nameof(MovementCalled)) : null,
                         transpiler: zoneIterator ? new HarmonyMethod(typeof(GamePatches), nameof(RewriteZoneWaits)) : clock || movement ? new HarmonyMethod(typeof(GamePatches), nameof(RewriteCalls)) : null,
                         finalizer: menuUpdate ? new HarmonyMethod(typeof(GamePatches), nameof(MenuUpdateFinished)) : null);
                     PatchedMethods++;
@@ -63,7 +71,8 @@ namespace Igtap.Tas.Runtime
             // The game's menu update consumes the recorded Pause action at its
             // native Update position, including while game timeScale is zero.
             if (__instance is pauseMenuScript && __originalMethod.Name == "Update") _menuUpdate = true;
-            if (__instance is Movement && __originalMethod.Name == "FixedUpdate") s.CountFixedTick();
+            if (__instance is Movement && __originalMethod.Name == "FixedUpdate")
+            { s.CountFixedTick(); if (s.Search?.Verifying == true) s.Search.ObserveResources(s.Adapter.SearchResources()); }
             return true;
         }
         private static Exception MenuUpdateFinished(Exception __exception) { _menuUpdate = false; return __exception; }
@@ -114,6 +123,8 @@ namespace Igtap.Tas.Runtime
         {
             if (!__result) Session?.NotifyZoneLoadFinished(__instance);
         }
+        private static void MoverCoroutineAdvanced(IEnumerator __instance, bool __result, bool __runOriginal)
+        { if (__runOriginal) SimulationCoroutineCapture.Observe(__instance, __result); }
         private static IEnumerable<CodeInstruction> RewriteZoneWaits(IEnumerable<CodeInstruction> instructions)
         {
             foreach (var instruction in RewriteCalls(instructions))
@@ -138,6 +149,12 @@ namespace Igtap.Tas.Runtime
             {
                 if ((instruction.opcode == OpCodes.Call || instruction.opcode == OpCodes.Callvirt) && instruction.operand is MethodInfo method)
                 {
+                    if (method.DeclaringType == typeof(PlayerPrefs))
+                    {
+                        var parameters = Array.ConvertAll(method.GetParameters(), p => p.ParameterType);
+                        var wrapper = typeof(RunPreferences).GetMethod(method.Name, parameters);
+                        if (wrapper != null) instruction.operand = wrapper;
+                    }
                     string replacement = null;
                     if (method.DeclaringType == typeof(Time))
                     {
@@ -183,6 +200,7 @@ namespace Igtap.Tas.Runtime
                 {
                     var target = method.Module.ResolveMethod(BitConverter.ToInt32(il, offset));
                     if (target.DeclaringType == typeof(InputAction)) return true;
+                    if (target.DeclaringType == typeof(PlayerPrefs)) return true;
                     if (target.DeclaringType == typeof(Time) && (target.Name == "get_unscaledDeltaTime" || target.Name == "get_unscaledTime" || target.Name == "get_unscaledTimeAsDouble")) return true;
                 }
                 switch (op.OperandType)
@@ -209,7 +227,11 @@ namespace Igtap.Tas.Runtime
             Session.MovementTimers.ObserveNative(target, method, delay, Session.ScaledNow);
         }
         private static void MovementCalled(Movement __instance, MethodBase __originalMethod)
-        { if (OwnsTimers(__instance)) Session.MovementTimers.NativeCalled(__instance, __originalMethod.Name); }
+        {
+            if (!OwnsTimers(__instance)) return;
+            Session.MovementTimers.NativeCalled(__instance, __originalMethod.Name);
+            if (Session.Search?.Verifying == true) Session.Search.ObserveResources(Session.Adapter.SearchResources());
+        }
         private static void CancelMovement(MonoBehaviour target, string method)
         {
             if (OwnsTimers(target)) Session.MovementTimers.Cancel(target, method);
@@ -256,6 +278,12 @@ namespace Igtap.Tas.Runtime
             var button = s != null && s.Active ? s.Adapter.ButtonFor(action) : Core.Buttons.None;
             return button != Core.Buttons.None ? !s.Frozen && s.CurrentInput.Pressed(button, s.PreviousInput) : action.WasPressedThisDynamicUpdate();
         }
-        public void Dispose() { _harmony.UnpatchAll(HarmonyId); Session = null; _menuUpdate = false; }
+        public void Dispose()
+        {
+            if(!_ownsRuntime)return;
+            try { _harmony.UnpatchAll(HarmonyId); }
+            finally { Session=null; _menuUpdate=false; _ownsRuntime=false;
+                if(ReferenceEquals(AppDomain.CurrentDomain.GetData(OwnerKey),this)) AppDomain.CurrentDomain.SetData(OwnerKey,null); }
+        }
     }
 }

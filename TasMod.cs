@@ -3,6 +3,7 @@ using System.IO;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using Igtap.Tas.Runtime;
+using Igtap.Tas.Core;
 using Igtap.Tas.UI;
 using Recharge.ModApi;
 using UnityEngine;
@@ -13,7 +14,7 @@ namespace Igtap.Tas
     {
         public string Id => "Tas.Studio";
         public string DisplayName => "Tas Studio";
-        public Version Version => new Version(0, 9, 3);
+        public Version Version => new Version(0, 12, 0);
         private TasSession _session;
         private GamePatches _patches;
         private LoopHooks _loop;
@@ -24,6 +25,7 @@ namespace Igtap.Tas
         private IRechargeHost _host;
         private RepeatabilityCheck _check;
         private bool _enabled, _disablePending;
+        private bool _profileAdvancing;
 
         public void OnLoad(IRechargeHost host)
         {
@@ -71,7 +73,10 @@ namespace Igtap.Tas
         }
         private void Early()
         {
-            _window?.PumpDesktop();
+            _profileAdvancing = _session.Active && !_session.Frozen &&
+                (_session.Mode == SessionMode.Recording || _session.Mode == SessionMode.Playback);
+            _session.Profiler.Begin(_profileAdvancing);
+            using (_session.Profiler.Measure(ProfileSection.DesktopCommands)) _window?.PumpDesktop();
             _session.Early();
             if (!_disablePending) return;
             try
@@ -90,6 +95,8 @@ namespace Igtap.Tas
         }
         private void End()
         {
+            try
+            {
             _session.End();
             _launcher?.Tick();
             _window?.RefreshPlayerStats();
@@ -99,6 +106,13 @@ namespace Igtap.Tas
                 return;
             }
             _check.Tick();
+            _session.Audit.Tick();
+            }
+            finally
+            {
+                _session.Profiler.End(_session.LastFramePus);
+                if (_profileAdvancing && _session.Frozen) _session.SaveProfile();
+            }
         }
         private void DisableRuntime()
         {

@@ -11,7 +11,7 @@ using UnityEngine.InputSystem;
 
 namespace Igtap.Tas.Runtime
 {
-    internal sealed class IgtapAdapter : IGameAdapter
+    internal sealed class IgtapAdapter : IGameAdapter, IEngineSearchCapture
     {
         private const BindingFlags Fields = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
         private static readonly string[] ActionFields = { "moveAction", "jumpAction", "jumpAction2", "dashAction", "dashAction2", "resetAction" };
@@ -29,6 +29,7 @@ namespace Igtap.Tas.Runtime
             "maxAirJumps", "maxAirDashes", "movingPlatformVelocity", "isBlueActiveOnRespawn"
         };
         private readonly FieldInfo[] _probeFields;
+        private readonly FieldInfo _deadField = RequireField("isDead");
         private readonly InputAction[] _actions = new InputAction[7];
         private Rigidbody2D _body;
         public Movement Player { get; private set; }
@@ -157,6 +158,16 @@ namespace Igtap.Tas.Runtime
             };
         }
         public WorldWitness CaptureWorld() => WorldCheckpoint.Capture();
+        public MotionVector SearchWorldPosition() => SearchExport.PlayerWorld(Player);
+        public Core.Search.AbilityResources SearchResources() => new Core.Search.AbilityResources { AirJumps = Player.airJumpsLeft,
+            Dashes = Player.airDashesLeft, WallJumps = Player.wallJumpsLeft, Alive = IsAlive && !(bool)_deadField.GetValue(Player) };
+        public void CaptureSearch(TasSession session, Core.Search.SearchJob job) => SearchExport.Capture(session, job);
+        private bool _enginePreviousHistory;
+        public void BeginEngineCapture() { _enginePreviousHistory=SimulationCapture.CollectHistory; SimulationCoroutineCapture.Clear(); SimulationCapture.BeginHistory(); SimulationCapture.CollectHistory=true; }
+        public void ExportEngineBootstrap(TasSession session,string directory) => SimulationCapture.Export(session,directory);
+        public Core.Simulation.SimulationSample CaptureEngineFrame(TasSession session,int frame,int pus) => SimulationCapture.Sample(session,frame,pus,"frame-end");
+        public void CaptureEngineSummary(TasSession session,Core.Search.SearchJob job) => SearchExport.CaptureEngineSummary(session,job);
+        public void EndEngineCapture() => SimulationCapture.CollectHistory=_enginePreviousHistory;
         private static string Number(float value) => Math.Round(value, 3).ToString("R", CultureInfo.InvariantCulture);
         internal static string Hash(byte[] bytes)
         {

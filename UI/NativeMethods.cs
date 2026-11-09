@@ -73,6 +73,7 @@ namespace Igtap.Tas.UI
         [DllImport("user32.dll")] internal static extern uint GetDpiForWindow(IntPtr hwnd);
         [DllImport("user32.dll")] internal static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
         [DllImport("user32.dll")] internal static extern IntPtr GetFocus();
+        [DllImport("user32.dll")] internal static extern bool IsChild(IntPtr parent, IntPtr child);
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] internal static extern int GetClassName(IntPtr hwnd, System.Text.StringBuilder name, int maxCount);
         [DllImport("gdi32.dll")] internal static extern IntPtr CreateSolidBrush(uint color);
         [DllImport("gdi32.dll")] internal static extern bool DeleteObject(IntPtr value);

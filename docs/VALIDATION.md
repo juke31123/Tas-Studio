@@ -1,3 +1,111 @@
+# Version 0.12.1 portable section-search validation
+
+The workspace suite passes 2,652 checks, including portable-package integrity,
+game-build identity, cancellation before preparation, unsafe file entries and
+continued recording immediately after Save edits accepts a searched section.
+The session integration checks use a fake Unity boundary.
+
+A freshly extracted Windows x64 portable package prepares the installed game's
+simulator copy without normal .NET discovery, reuses it on subsequent searches,
+repairs altered generated files and runs host compatibility checks and Wave
+search. The installed game assembly remains unchanged. The ZIP excludes game
+assemblies, personal recordings and save data.
+
+The actual Unity/Mono game also exercised the mod's background first-use setup
+from a fresh portable package. At the supplied Spring TAS's 280 FPS and 50 Hz
+physics, 3,100 frames / 4,195 samples match, branch restores and shuffled workers
+pass, and Wave finds an 18-frame section which passes native playback. Accept
+stages a draft while preserving the original until Save edits. The controlled
+test restores the installed DLL and confirms original saved progress is unchanged.
+
+A second native search checks a 395-frame movement-only section. Wave finds a
+254-frame candidate reaching the same goal with the selected ability restrictions;
+native playback and draft acceptance pass. Its 1,600-frame reference capture has
+2,167 matching samples. This saves 141 movie frames on that particular section;
+it does not establish optimality or predict speedups on other routes.
+
+The additional spring-direction passive capture has exact agreement on all
+19,548 scoped player samples from the first spring onward. Its full comparison
+still fails on small starting Y-velocity differences before frame 239; see
+[spring validation and limits](GLITCH-VALIDATION.md). This is not universal
+mechanic/glitch certification or a claim of globally optimal routes. Dependency
+builds may report upstream nullable warnings or unavailable NuGet audit data;
+the Tas Studio mod and host compile without compiler warnings.
+
+# Version 0.11.0 experimental validation
+
+The production mod and external solver compile against the installed references
+with zero warnings/errors. The workspace suite contains 2,480 checks, including
+native window opening/reopening, camera rebinding/goal precision, bounded chain
+enumeration, parallel independent states, cancellation, polygon hazard outlines,
+all-rate frame/PU scheduling and real external-worker integration. The standalone
+repository suite contains 214 checks.
+
+The search integration tests use a fake Unity boundary for session behaviour.
+They verify that predicted success is rejected when the native model misses the
+goal or consumes a disabled ability, and that accepting a verified candidate
+creates a draft, deletes the suffix only after Save edits, and preserves backups.
+
+A temporary mod additionally ran the actual installed Unity/Mono game at 50 FPS.
+It recorded a short Level 1 route, set the final player position as the goal,
+reconstructed frame 0, exported 5,795 collider shapes and searched on two external
+workers. The candidate passed native goal verification, was accepted/rebuilt/saved,
+and the resulting 16-frame movie replayed with matching native probes. Goal-camera
+panning/restoration preserved body position, velocity, movie, frame and RNG. The
+saved-progress hash before/after the test matched. The probe and its test movies
+were archived outside Mods; they are excluded from the release.
+
+Earlier native runs exposed broad bounding boxes for spike outlines and precision
+loss on thin edge geometry; the export now uses individual shapes/segments and
+precision-safe thickness. This experimental backend still approximates movement,
+contact and timing details. Native verification proves goal reachability for a
+candidate, not Unity-equivalent simulation or global optimality. Full world,
+moving-platform, economy, coroutine and glitch parity remain future work. See
+BRUTEFORCE.md and EXTERNAL-SIMULATION-PLAN.md.
+
+# Version 0.10.0 validation
+
+All 2,392 workspace checks pass, including 181 new core/runtime reliability
+checks and native Redo-button integration. The standalone source repository
+suite contains 158 checks. The production build compiles against the installed
+game assemblies with no warnings or errors.
+
+Coverage includes bounded multi-level input history, exact-edge undo/redo,
+stale-history rejection, branch invalidation, flushed draft recovery, interrupted
+final writes, damaged complete entries, rejected writes while the journal is
+locked, recovery without automatic replay, bounded profiling, and startup/world
+checkpoint matching. All nine game FPS choices exercise continuous and stepped
+replay audit, same-frame savestate reuse, edited-then-undone prefix reuse, and
+fallback reconstruction when the live world no longer matches its checkpoint.
+Currency-only divergence is detected even when the player probe matches.
+
+The installed Assembly-CSharp IL was inspected: OpenA2Door is used by
+upgradeBox.Start, upgradeBox.buyUpgrade and pauseMenuScript.deleteSaveFunction.
+The session-local preference tests verify captured values, configured starts,
+write/delete isolation, and replay after the machine's preference changes.
+
+Offscreen native Win32 windows were rendered and inspected, including the Frame
+Editor and Checks tab. Session tests use a simulated Unity boundary: real gameplay,
+native coroutine/contact fidelity, runtime patch execution and performance at
+280 FPS still require in-game acceptance. Verify replay is provided for that work;
+it does not independently prove equivalence to an unmodded game.
+
+Arbitrary backward native-memory restoration is not implemented. Only matching
+still-live checkpoints are reused; changed/older prefixes reconstruct by replay.
+
+# Version 0.9.4 validation
+
+All 2,208 workspace checks pass. PU stepping is exercised at all nine game FPS
+options, through hitstop and replay, with observed-frame boundaries and unchanged
+50 Hz physics. Tests cover an open menu, a five-second no-PU limit, unchanged live
+inputs preserving future timing, edited playback restoring PU observations without
+inventing movement probes, and repeated draft clones retaining display history.
+Real offscreen Win32 tests verify red rows with Follow disabled and the current
+frame offscreen, pending timing markings, and removal when re-observation finds
+zero PUs. Both buttons and F11 dispatch the same command. Existing six-key settings
+retain their bindings; an occupied F11 leaves the new shortcut unbound.
+Session checks use a simulated Unity boundary; live in-game acceptance is pending.
+
 # Version 0.9.3 validation
 
 All 1,045 automated checks pass, including 80 menu session checks at 30/50/280 FPS.

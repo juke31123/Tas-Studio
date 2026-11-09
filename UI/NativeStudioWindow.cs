@@ -34,6 +34,8 @@ namespace Igtap.Tas.UI
         private string _name = "", _localError = "";
         private string[] _movies = Array.Empty<string>(), _states = Array.Empty<string>();
         private NativeFrameEditor _editor;
+        private NativeBruteforceWindow _bruteforce;
+        internal IntPtr BruteforceHandle => _bruteforce?.Handle ?? IntPtr.Zero;
         internal IntPtr EditorHandle => _editor?.Handle ?? IntPtr.Zero;
         private const uint Child = 0x50000000, TabStop = 0x10000;
         private const uint Back = NativeTheme.Back, Fore = NativeTheme.Text;
@@ -70,7 +72,7 @@ namespace Igtap.Tas.UI
                     Instance = instance, Cursor = N.LoadCursor(IntPtr.Zero, new IntPtr(32512)), Background = _background, Name = className };
                 if (N.RegisterClassEx(ref wc) == 0) throw new Win32Exception(Marshal.GetLastWin32Error());
                 registered = true;
-                IntPtr hwnd = N.CreateWindowEx(0, className, "Tas Studio 0.9.3 - in-game process", 0x02CF0000,
+                IntPtr hwnd = N.CreateWindowEx(0, className, "Tas Studio 0.12.0 - in-game process", 0x02CF0000,
                     _visible ? unchecked((int)0x80000000) : -30000, _visible ? unchecked((int)0x80000000) : -30000,
                     980, 850, IntPtr.Zero, IntPtr.Zero, instance, IntPtr.Zero);
                 if (hwnd == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
@@ -79,6 +81,7 @@ namespace Igtap.Tas.UI
                 _scale = Math.Max(1, N.GetDpiForWindow(hwnd) / 96f);
                 Build(); Fonts(); Layout();
                 _editor = new NativeFrameEditor(_channel, hwnd, _visible);
+                _bruteforce = new NativeBruteforceWindow(_channel, hwnd, _visible);
                 if (_close) { N.DestroyWindow(hwnd); return; }
                 _channel.IsOpen = true; _channel.Starting = false;
                 N.SetTimer(hwnd, new UIntPtr(1), 100, IntPtr.Zero);
@@ -86,6 +89,7 @@ namespace Igtap.Tas.UI
                 int result;
                 while ((result = N.GetMessage(out var message, IntPtr.Zero, 0, 0)) > 0)
                 {
+                    if (_bruteforce != null && _bruteforce.ProcessKey(ref message)) continue;
                     if (_editor != null && _editor.ProcessKey(ref message)) continue;
                     // Local shortcuts only. Ignore repeats, editor chords and text entry.
                     if (message.Id == 0x100 || message.Id == 0x104)
@@ -101,18 +105,23 @@ namespace Igtap.Tas.UI
                             if (shortcut == (int)TasShortcut.Pause) Click(100);
                             else if (shortcut == (int)TasShortcut.Step) Click(101);
                             else if (shortcut == (int)TasShortcut.Stop) Click(102);
+                            else if (shortcut == (int)TasShortcut.StepPu) Click(117);
                             else if (shortcut >= 0) { _tab = shortcut == (int)TasShortcut.Savestates ? 3 : 0; Layout(); _editor?.Open(); N.ShowWindow(hwnd, 5); N.SetForegroundWindow(hwnd); }
                         }
                         catch (Exception e) { _localError = e.Message; }
                         if (shortcut >= 0) continue;
                     }
-                    if (!N.IsDialogMessage(hwnd, ref message)) { N.TranslateMessage(ref message); N.DispatchMessage(ref message); }
+                    var searchHandle = _bruteforce?.Handle ?? IntPtr.Zero;
+                    var dialog = searchHandle != IntPtr.Zero && (message.Hwnd == searchHandle || N.IsChild(searchHandle, message.Hwnd)) ? searchHandle : hwnd;
+                    if (!N.IsDialogMessage(dialog, ref message))
+                    { N.TranslateMessage(ref message); N.DispatchMessage(ref message); }
                 }
                 if (result < 0) throw new Win32Exception(Marshal.GetLastWin32Error());
             }
             catch (Exception e) { _channel.Error = "Native window: " + e.Message; }
             finally
             {
+                _bruteforce?.Dispose(); _bruteforce = null;
                 _editor?.Dispose(); _editor = null;
                 var hwnd = Handle;
                 if (hwnd != IntPtr.Zero) N.DestroyWindow(hwnd);
@@ -145,12 +154,12 @@ namespace Igtap.Tas.UI
                         var rect = Marshal.PtrToStructure<N.Rect>(lp);
                         N.MoveWindow(hwnd, rect.Left, rect.Top, rect.Right - rect.Left, rect.Bottom - rect.Top, true);
                         Fonts(); Layout(); return IntPtr.Zero;
-                    case 0x113: Refresh(); _editor?.Refresh(); return IntPtr.Zero; // WM_TIMER
+                    case 0x113: Refresh(); _editor?.Refresh(); _bruteforce?.Refresh(); return IntPtr.Zero; // WM_TIMER
                     case 0xF: PaintPanels(hwnd); return IntPtr.Zero;
                     case 0x2B:
                         var item = Marshal.PtrToStructure<N.DrawItem>(lp);
                         if (item.Type == 4) _theme.Button(item, item.Id == 100 || item.Id == 108 || item.Id == 403,
-                            item.Id == 10 && _tab == 0 || item.Id == 11 && _tab == 3, item.Id == 102);
+                            item.Id == 10 && _tab == 0 || item.Id == 11 && _tab == 3 || item.Id == 13 && _tab == 4, item.Id == 102);
                         else if (item.Id == 1) _theme.Header(item, _shown, "TAS STUDIO");
                         else if (item.Id == 21) _theme.Stats(item, _shown);
                         else if (item.Id == 23)
@@ -206,19 +215,26 @@ namespace Igtap.Tas.UI
             Add(1, "STATIC", "TAS STUDIO / Opening native window...", 0, 0, 1, 1);
             Add(2, "STATIC", "", 0, 0, 1, 1);
             for (int i = 0; i < 2; i++) Add(10 + i, "BUTTON", new[] { "Run", "States" }[i], 0, 0, 1, 1, -1, TabStop);
+            Add(13, "BUTTON", "Checks", 0, 0, 1, 1, -1, TabStop);
             Add(20, "STATIC", "PLAYER / LIVE + NEXT FRAME", 0, 0, 1, 1);
             Add(21, "STATIC", "Waiting for player...", 0, 0, 1, 1);
             Add(22, "STATIC", "", 0, 0, 1, 1);
             Add(23, "STATIC", "", 0, 0, 1, 1);
             Add(100, "BUTTON", "Pause / Run", 0, 0, 154, 32, 0, TabStop);
             Add(101, "BUTTON", "Step frame", 166, 0, 154, 32, 0, TabStop);
-            Button(102, "Stop + reload", 40, 0);
+            Add(117, "BUTTON", "Step PU", 0, 40, 154, 32, 0, TabStop);
+            Add(102, "BUTTON", "Stop + reload", 166, 40, 154, 32, 0, TabStop);
             Label(103, "Speed (0.1 to 1.0; dot or comma)", 82, 0); Edit(104, "1", 108, 0, 0, 110);
             Add(105, "BUTTON", "Apply speed", 122, 108, 198, 28, 0, TabStop);
             Label(106, "TAS filename", 150, 0); Edit(107, "my-run", 176, 0); Button(108, "Save movie", 212, 0);
             Label(114, "Closing this window pauses an advancing run.\r\nCreate/load/replay: in-game Mods > Tas Studio.", 370, 0, 85);
             Button(115, "Open frame editor", 256, 0);
             Check(116, "Record inputs from frame list", 298, 0);
+            Button(120, "Open Bruteforce window", 332, 0);
+            Button(118, "Save performance profile", 0, 4);
+            Button(119, "Verify replay", 50, 4);
+            Label(500, "At the main menu, load a fully recorded movie,\r\nthen Verify replay to compare continuous and\r\nframe-stepped playback against its references.\r\nStop cancels; a mismatch stays paused.\r\n\r\nProfiles: data/performance\r\nReplay reports: data/movies", 100, 4, 170);
+            Label(501, "", 280, 4, 150);
             Label(400, "SAVESTATES / paused recording", 0, 3); Label(401, "State name", 38, 3); Edit(402, "checkpoint-1", 64, 3);
             Button(403, "Save current state", 104, 3); Combo(404, 156, 3); Button(405, "Load selected state", 196, 3);
             Label(406, "Loading reconstructs the saved frame by replay,\r\nthen pauses recording. This is not an instant\r\nmemory restore.", 244, 3, 85);
@@ -235,7 +251,8 @@ namespace Igtap.Tas.UI
             int middle = (width - 96) * 44 / 100, mx = 32, rx = mx + middle + 48;
             bool compact = height < 740;
             Move(1, 16, 16, width - 32, 124); Move(2, 16, height - 68, width - 32, 52);
-            for (int i = 0; i < 2; i++) Move(10 + i, mx + i * (middle / 2), 170, middle / 2 - 4, 32);
+            var tabs = new[] { 10, 11, 13 };
+            for (int i = 0; i < tabs.Length; i++) Move(tabs[i], mx + i * (middle / 3), 170, middle / 3 - 4, 32);
             int tableHeight = Math.Max(242, Math.Min(320, height - 480));
             Move(20, rx, 170, width - rx - 32, 30); Move(21, rx, 218, width - rx - 32, tableHeight);
             Move(22, rx, 234 + tableHeight, width - rx - 32, compact ? 44 : 66);
@@ -245,6 +262,7 @@ namespace Igtap.Tas.UI
                 Move(c.Id, mx + c.X * middle / 320, 218 + c.Y, c.Width * middle / 320, c.Height);
                 N.ShowWindow(_controls[c.Id], c.Page == _tab && !(compact && c.Id == 114) ? 5 : 0);
             }
+            Move(501, mx, 498, middle, Math.Max(32, height - 592));
             if (_shown != null) Details(_shown);
             N.InvalidateRect(Handle, IntPtr.Zero, true);
         }
@@ -273,16 +291,20 @@ namespace Igtap.Tas.UI
         private void Click(int id)
         {
             if (_availability.TryGetValue(id, out bool available) && !available) return;
-            if (id >= 10 && id <= 11) { _tab = id == 10 ? 0 : 3; Layout(); return; }
+            if (id >= 10 && id <= 11 || id == 13) { _tab = id == 10 ? 0 : id == 11 ? 3 : 4; Layout(); return; }
             switch (id)
             {
                 case 100: Send(new Command { Action = "pause" }); break;
                 case 101: Send(new Command { Action = "step" }); break;
+                case 117: Send(new Command { Action = "stepPu" }); break;
                 case 102: Send(new Command { Action = "stop" }); break;
                 case 105: Send(new Command { Action = "speed", Speed = Text(104) }); break;
                 case 108: Send(new Command { Action = "save", Name = Text(107) }); break;
                 case 115: _editor?.Open(); break;
                 case 116: Send(new Command { Action = "timelineInput", Authored = Checked(116) }); break;
+                case 118: Send(new Command { Action = "saveProfile" }); break;
+                case 119: Send(new Command { Action = "verifyReplay" }); break;
+                case 120: _bruteforce?.Open(); break;
                 case 403: Send(new Command { Action = "saveState", Name = Text(402) }); break;
                 case 405: Send(new Command { Action = "loadState", Name = Text(404) }); break;
             }
@@ -292,8 +314,12 @@ namespace Igtap.Tas.UI
             var s = _channel.Latest; if (s == null) return;
             bool relayout = _shown == null || _shown.Mode != s.Mode || _shown.MainMenu != s.MainMenu;
             _shown = s;
+            Text(501, s.AuditResult);
+            Enable(119, s.MainMenu && !s.Active && !s.PendingEdits && !s.AuditRunning && s.Frames > 0);
+            Enable(105, !s.AuditRunning);
             Text(100, s.Bindings.Label(TasShortcut.Pause) + "  Pause / Run");
             Text(101, s.Bindings.Label(TasShortcut.Step) + "  Step frame");
+            Text(117, s.Bindings.Label(TasShortcut.StepPu) + "  Step PU");
             Text(102, s.Bindings.Label(TasShortcut.Stop) + "  Stop + reload");
             Text(114, s.Bindings.Label(TasShortcut.Editors) + " reopens the desktop windows.\r\nClosing this window pauses an advancing run.\r\nCreate/load/replay: in-game Mods > Tas Studio.");
             if (_channel.RequestedPage >= 0)
@@ -310,6 +336,7 @@ namespace Igtap.Tas.UI
             SetCheck(116, s.TimelineInput);
             if (_name != s.Name && N.GetFocus() != _controls[107]) { Text(107, s.Name); _name = s.Name; }
             Enable(100, s.CanTransport); Enable(101, s.CanTransport); Enable(102, s.Active); Enable(108, s.Frames > 0);
+            Enable(117, s.CanTransport);
 
             Enable(403, s.CanState); Enable(405, s.CanState);
             Text(108, s.Dirty ? "Save movie *" : "Save movie");

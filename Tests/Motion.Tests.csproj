@@ -10,6 +10,15 @@
     <Compile Include="FrameCellTests.cs;../Core/FrameCellEdit.cs;../Core/Timeline.cs" />
     <Compile Include="FrameTimingTests.cs;../Core/FrameTiming.cs" />
     <Compile Include="PerformanceTests.cs;../Core/PerformanceTrace.cs" />
+    <Compile Include="ReliabilityTests.cs;../Core/EditHistory.cs;../Core/DraftJournal.cs;../Core/FrameProfiler.cs;../Core/RebuildCheckpoints.cs" />
+    <Compile Include="SearchTests.cs;../Core/Search/**/*.cs;../Core/Keybinds.cs" />
+    <Compile Include="SimulationTraceTests.cs;../Core/Simulation/**/*.cs" />
+    <Compile Include="AnimationTimelineTests.cs" />
+    <Compile Include="CoroutineSnapshotTests.cs" />
+    <Compile Include="EngineSearchTests.cs;EnginePackageTests.cs" />
+    <Compile Include="RecorderTests.cs;../Core/Validation/*.cs" />
+    <Compile Include="PassiveRecorderTests.cs;../Recorder/PassiveData.cs" />
+    <Compile Include="PassiveCaptureAuditTests.cs" />
     <Reference Include="Newtonsoft.Json"><HintPath>$(ManagedDir)/Newtonsoft.Json.dll</HintPath></Reference>
   </ItemGroup>
 </Project>

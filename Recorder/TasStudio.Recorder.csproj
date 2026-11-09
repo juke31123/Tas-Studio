@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework><AssemblyName>TasStudioRecorder</AssemblyName>
+    <Version>1.1.1</Version><Authors>Juke</Authors><Product>Tas Studio Gameplay Recorder</Product>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems><LangVersion>latest</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../Core/**/*.cs" Exclude="../Core/Validation/**/*.cs;../Core/Search/ChainSearch.cs;../Core/Search/SectionSearch.cs;../Core/Search/StaticCollisionWorld.cs;../Core/Search/StaticPlatformSimulation.cs" />
+    <Compile Include="RecorderMod.cs;RecorderController.cs;RecorderWindow.cs;ContactCapture.cs;PassiveHooks.cs;PassiveData.cs;LiveWorldCapture.cs" />
+    <GameAssembly Include="Recharge.ModApi;Assembly-CSharp;UnityEngine.CoreModule;UnityEngine.Physics2DModule;UnityEngine.JSONSerializeModule;Unity.InputSystem;UnityEngine.AnimationModule;UnityEngine.AudioModule;UnityEngine.IMGUIModule;UnityEngine.UIModule;UnityEngine.UI;Unity.TextMeshPro;UnityEngine.GridModule;UnityEngine.TilemapModule;Newtonsoft.Json" />
+    <Reference Include="@(GameAssembly)"><HintPath>$(ManagedDir)/%(Identity).dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="0Harmony"><HintPath>$(HarmonyPath)</HintPath><Private>true</Private></Reference>
+    <None Include="mod.json;README.md" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,8 @@
+<Project>
+  <PropertyGroup>
+    <!-- Build tools and extracted test packages contain retargeted game
+         assemblies. SDK candidate discovery must never substitute these for
+         the native game's explicit HintPaths, including after package tests. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);**/bin/**;**/obj/**;**/artifacts/**;**/.tools/**;**/.packages/**</DefaultItemExcludes>
+  </PropertyGroup>
+</Project>

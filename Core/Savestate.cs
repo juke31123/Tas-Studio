@@ -14,6 +14,32 @@ namespace Igtap.Tas.Core
         public SortedDictionary<string, string> Exact = new SortedDictionary<string, string>(StringComparer.Ordinal);
         public SortedDictionary<string, double> Numbers = new SortedDictionary<string, double>(StringComparer.Ordinal);
 
+        // Periodic movie witnesses retain actionable scalar fields but hash bulk
+        // geometry/course histories. Otherwise a long course path would be copied
+        // in full into the movie every second. User savestates retain full data.
+        public WorldWitness CompactForReplay()
+        {
+            var result = new WorldWitness();
+            var groups = new SortedDictionary<string, StringBuilder>(StringComparer.Ordinal);
+            string Group(string key) => key.Contains("Collider2D#") ? "scene-colliders" : key.Contains("Rigidbody2D#") ? "scene-bodies" :
+                key.Contains("/currentPlayerPath/") || key.Contains("/currentPlayerScales/") ? "course-paths" : null;
+            void Add(string group, string key, string value, char kind)
+            {
+                if (!groups.TryGetValue(group, out var builder)) groups[group] = builder = new StringBuilder();
+                builder.Append(kind).Append(key.Length).Append(':').Append(key).Append(value.Length).Append(':').Append(value);
+            }
+            foreach (var pair in Exact)
+            { string group = Group(pair.Key); if (group == null) result.Exact[pair.Key] = pair.Value; else Add(group, pair.Key, pair.Value ?? "null", 's'); }
+            foreach (var pair in Numbers)
+            { string group = Group(pair.Key); if (group == null) result.Numbers[pair.Key] = pair.Value; else Add(group, pair.Key, pair.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture), 'n'); }
+            foreach (var group in groups)
+            {
+                using var hash = System.Security.Cryptography.SHA256.Create();
+                result.Exact["digest/" + group.Key] = Convert.ToBase64String(hash.ComputeHash(Encoding.UTF8.GetBytes(group.Value.ToString())));
+            }
+            return result;
+        }
+
         public void Validate()
         {
             if (Exact == null || Numbers == null || Exact.Count + Numbers.Count == 0)
@@ -30,7 +56,8 @@ namespace Igtap.Tas.Core
                     return pair.Key + " differs (expected " + pair.Value + ", actual " + (value ?? "missing") + ")";
             foreach (var pair in Numbers)
                 if (!actual.Numbers.TryGetValue(pair.Key, out var value) || double.IsNaN(value) || double.IsInfinity(value) || Math.Abs(pair.Value - value) > 0.0001)
-                    return pair.Key + " differs";
+                    return pair.Key + " differs (expected " + pair.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                        ", actual " + (actual.Numbers.ContainsKey(pair.Key) ? value.ToString("R", System.Globalization.CultureInfo.InvariantCulture) : "missing") + ")";
             return Exact.Count != actual.Exact.Count || Numbers.Count != actual.Numbers.Count ? "World object/field count differs" : null;
         }
     }

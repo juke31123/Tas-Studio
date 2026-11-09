@@ -22,7 +22,7 @@ namespace Igtap.Tas.UI
         private TMP_InputField _name;
         private Button _toggle, _create, _load, _replay, _start, _desktop, _omni, _dashCount;
         private readonly GameObject[] _pages = new GameObject[4];
-        private readonly Button[] _bindingButtons = new Button[6];
+        private readonly Button[] _bindingButtons = new Button[Keybinds.Titles.Length];
         private TMP_Text _shortcutHelp, _bindingHelp;
         private int _capture = -1;
         private readonly Button[] _fileButtons = new Button[5];
@@ -69,8 +69,8 @@ namespace Igtap.Tas.UI
             for (int i = 0; i < _bindingButtons.Length; i++)
             {
                 int action = i;
-                Label(keys, -150, 220 - i * 60, 420, 42, Keybinds.Titles[i]);
-                _bindingButtons[i] = Button(keys, 235, 220 - i * 60, 220, "", () => { _capture = action; });
+                Label(keys, -150, 220 - i * 50, 420, 42, Keybinds.Titles[i]);
+                _bindingButtons[i] = Button(keys, 235, 220 - i * 50, 220, "", () => { _capture = action; });
             }
             _bindingHelp = Label(keys, 0, -155, 750, 80, "");
             Button(keys, -195, -235, 370, "Restore defaults", () => { _capture = -1; _session.SaveBindings(new Keybinds()); });
@@ -237,7 +237,7 @@ namespace Igtap.Tas.UI
             PauseMenuHelper.SetButtonLabel(_desktop.gameObject, "Open desktop editing windows (" + bindings.Label(TasShortcut.Editors) + ")");
             _shortcutHelp.text = "Create, load and replay from the main menu.\nRecording opens desktop editors after loading.\n" +
                 bindings.Label(TasShortcut.Pause) + " pause/resume | " + bindings.Label(TasShortcut.Step) + " step | " + bindings.Label(TasShortcut.Stop) + " stop\n" +
-                bindings.Label(TasShortcut.Savestates) + " savestates | " + bindings.Label(TasShortcut.Stats) + " player stats";
+                bindings.Label(TasShortcut.Savestates) + " savestates | " + bindings.Label(TasShortcut.Stats) + " player stats | " + bindings.Label(TasShortcut.StepPu) + " step PU";
             for (int i = 0; i < _bindingButtons.Length; i++)
                 PauseMenuHelper.SetButtonLabel(_bindingButtons[i].gameObject, _capture == i ? "Press a key..." : bindings.Label((TasShortcut)i));
             _bindingHelp.text = _capture >= 0 ? "Press F1-F12, A-Z or 0-9. Escape cancels; Delete clears.\n" + Keybinds.Titles[_capture] :

@@ -1,9 +1,18 @@
-# Native Studio windows (0.9.1)
+# Native Studio windows (0.10.0)
+
+Version 0.11.0 adds **Run > Open Bruteforce window**, a third same-process native
+control window. The search algorithm runs in a separate hidden computational
+worker. See [Bruteforce controls and experimental coverage](BRUTEFORCE.md).
+
+The **Checks** tab exports performance profiles and starts a continuous/stepped
+replay comparison for a fully recorded movie selected at the main menu.
+The Frame Editor adds bounded multi-level Undo/Redo and **Recover draft**.
+See [replay reliability and recovery](REPLAY-RELIABILITY.md).
 
 **Mods > Tas Studio > Keybinds** configures open-editors, pause/resume, step,
-stop/reload, savestates and stats. Click a binding and press F1-F12, A-Z or 0-9;
+stop/reload, savestates, stats and Step PU. Click a binding and press F1-F12, A-Z or 0-9;
 Escape cancels and Delete unbinds. Changes persist immediately in `data/keybinds.json`,
-with a backup when replacing an existing file. Restore defaults resets all six.
+with a backup when replacing an existing file. Restore defaults resets all seven.
 Duplicates and unsupported keys are rejected; corrupt settings fall back to defaults
 with an error shown in the menu, preserving the file until a successful explicit save.
 The shortcuts listed below are defaults. Both desktop windows show current bindings.
@@ -38,7 +47,7 @@ The in-game settings panel scales to fit within 90% of the visible viewport widt
 
 Start in the game's **Settings / Mods > Tas Studio** page. It offers Create New Tas, a paged saved-movie browser, and Start Replay. Creation includes new game, all fifteen level starts, the area/overgrown setup, abilities, up to two air dashes and one extra air jump, refill orbs and zippers. Nothing opens automatically at game startup.
 
-After startup loading and warmup complete, the recording or replay pauses at frame zero and opens two desktop windows: Studio and Frame Editor. Both run inside IGTAP on a dedicated native UI thread. There is no companion executable, web server or Desktop Runtime dependency. No floating in-game editor, savestate/stats windows or TAS banner remain.
+After startup loading and warmup complete, recording or replay pauses at frame zero and opens Studio and Frame Editor. Both run inside IGTAP on a dedicated native UI thread. The optional Bruteforce control window uses that thread too. Its computational Solver executable needs .NET 10; the control windows themselves have no Desktop Runtime dependency. No floating in-game editor, savestate/stats windows or TAS banner remain.
 
 ## Controls
 

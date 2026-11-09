@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>netstandard2.1</TargetFramework><AssemblyName>TasRecorderProbe</AssemblyName><EnableDefaultCompileItems>false</EnableDefaultCompileItems><LangVersion>latest</LangVersion></PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Probe.cs" />
+    <GameAssembly Include="Recharge.ModApi;Assembly-CSharp;UnityEngine.CoreModule;UnityEngine.Physics2DModule;Unity.InputSystem;UnityEngine.ScreenCaptureModule;Newtonsoft.Json" />
+    <Reference Include="@(GameAssembly)"><HintPath>$(ManagedDir)/%(Identity).dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="TasStudioRecorder"><HintPath>../bin/Release/netstandard2.1/TasStudioRecorder.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="0Harmony"><HintPath>$(HarmonyPath)</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+</Project>

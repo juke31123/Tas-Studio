@@ -25,7 +25,7 @@ namespace Igtap.Tas.UI
         private IntPtr _handle, _font, _cellEdit;
         private IntPtr _bufferDc, _bufferBitmap, _originalBitmap;
         private int _bufferWidth, _bufferHeight;
-        private string _heading, _footer, _pauseLabel, _stepLabel;
+        private string _heading, _footer, _pauseLabel, _stepLabel, _puLabel;
         private float _scale = 1;
         private Snapshot _snapshot;
         private int _top, _anchor, _end, _column = 1, _editFrame, _editColumn, _revision;
@@ -63,6 +63,8 @@ namespace Igtap.Tas.UI
             Add(7, "BUTTON", "Follow cursor", 3); Add(8, "EDIT", "0", 0x00800080); Add(9, "BUTTON", "Go to frame", 0);
             Add(10, "STATIC", "", 0); Add(11, "STATIC", "", 0);
             Add(12, "BUTTON", "Save edits", 0); Add(13, "BUTTON", "Discard", 0);
+            Add(14, "BUTTON", "Step PU", 0);
+            Add(15, "BUTTON", "Redo", 0); Add(16, "BUTTON", "Recover draft", 0);
             N.SendMessage(_controls[7], 0xF1, new IntPtr(_follow ? 1 : 0), IntPtr.Zero);
             Fonts(); Layout(); Refresh();
             if (_visible) N.ShowWindow(_handle, 5);
@@ -85,11 +87,12 @@ namespace Igtap.Tas.UI
         {
             if (_handle == IntPtr.Zero || _controls.Count == 0) return;
             CloseCell(false);
-            int width = Width, button = (width - 32) / 6;
+            int width = Width, button = (width - 32) / 8;
             Move(10, 16, 8, width - 32, 44);
-            for (int i = 0; i < 6; i++) Move(1 + i, 16 + button * i, 58, button - 4, 30);
-            Move(7, 16, 98, 140, 28); Move(8, 160, 98, 80, 28); Move(9, 248, 98, 110, 28);
-            Move(12, 370, 98, 138, 28); Move(13, 516, 98, 140, 28);
+            var toolbar = new[] { 1, 2, 14, 3, 15, 4, 5, 6 };
+            for (int i = 0; i < toolbar.Length; i++) Move(toolbar[i], 16 + button * i, 58, button - 4, 30);
+            Move(7, 16, 98, 120, 28); Move(8, 140, 98, 64, 28); Move(9, 212, 98, 100, 28);
+            Move(12, 320, 98, 110, 28); Move(13, 438, 98, 90, 28); Move(16, 536, 98, width - 552, 28);
             Move(11, 16, Height - 65, width - 32, 58); UpdateScroll(); Invalidate();
         }
         private int Width { get { N.GetClientRect(_handle, out var r); return (int)(r.Right / _scale); } }
@@ -126,7 +129,7 @@ namespace Igtap.Tas.UI
                 switch (message)
                 {
                     case 0x10: _saveAfterCell = false; CancelStroke(); CloseCell(false); N.DestroyWindow(hwnd); return IntPtr.Zero;
-                    case 0x2: ReleaseBuffer(); _heading = _footer = _pauseLabel = _stepLabel = null; _handle = IntPtr.Zero; _controls.Clear(); _cellEdit = IntPtr.Zero; return IntPtr.Zero;
+                    case 0x2: ReleaseBuffer(); _heading = _footer = _pauseLabel = _stepLabel = _puLabel = null; _handle = IntPtr.Zero; _controls.Clear(); _cellEdit = IntPtr.Zero; return IntPtr.Zero;
                     case 0x24:
                         var size = Marshal.PtrToStructure<N.MinMax>(lp); size.MinTrack.X = (int)(720 * _scale); size.MinTrack.Y = (int)(520 * _scale);
                         Marshal.StructureToPtr(size, lp, false); return IntPtr.Zero;
@@ -156,7 +159,8 @@ namespace Igtap.Tas.UI
                         if (key == 27) { CancelStroke(); CloseCell(false); }
                         else if (key == 46) RowCommand("deleteRows");
                         else if (key == 45) RowCommand("insertRows");
-                        else if (key == 90 && N.GetKeyState(17) < 0) Send(new Command { Action = "undo" });
+                        else if (key == 90 && N.GetKeyState(17) < 0 && Editable) Send(new Command { Action = N.GetKeyState(16) < 0 ? "redo" : "undo" });
+                        else if (key == 89 && N.GetKeyState(17) < 0 && Editable) Send(new Command { Action = "redo" });
                         else if (key == 83 && N.GetKeyState(17) < 0) Button(12);
                         else if (key == 32 && Editable && !IsAxis(_column) && TryRow(_anchor, out var selected))
                             Send(new Command { Action = "paint", Start = Math.Min(_anchor, _end), Count = Math.Abs(_end - _anchor) + 1,
@@ -183,7 +187,10 @@ namespace Igtap.Tas.UI
             {
                 case 1: if (_snapshot?.CanTransport == true) Send(new Command { Action = "pause" }); break;
                 case 2: if (_snapshot?.CanTransport == true) Send(new Command { Action = "step" }); break;
+                case 14: if (_snapshot?.CanTransport == true) Send(new Command { Action = "stepPu" }); break;
                 case 3: if (Editable) Send(new Command { Action = "undo" }); break;
+                case 15: if (Editable) Send(new Command { Action = "redo" }); break;
+                case 16: if (_snapshot?.CanRecoverDraft == true && !_snapshot.PendingEdits) Send(new Command { Action = "recoverDraft" }); break;
                 case 4: RowCommand("insertRows"); break;
                 case 5: RowCommand("deleteRows"); break;
                 case 6: RowCommand("clearRows"); break;
@@ -300,6 +307,7 @@ namespace Igtap.Tas.UI
             _snapshot = snapshot;
             SetLabel(1, ref _pauseLabel, snapshot.Bindings.Label(TasShortcut.Pause) + " Pause");
             SetLabel(2, ref _stepLabel, snapshot.Bindings.Label(TasShortcut.Step) + " Step");
+            SetLabel(14, ref _puLabel, snapshot.Bindings.Label(TasShortcut.StepPu) + " PU");
             if (_saveAfterCell && _pending.Length == 0)
             {
                 _saveAfterCell = false;
@@ -310,9 +318,13 @@ namespace Igtap.Tas.UI
             _top = Math.Min(_top, snapshot.Frames); _channel.Page = _top;
             SetLabel(10, ref _heading, snapshot.Name + (snapshot.PendingEdits ? " * UNSAVED EDITS" : "") + " / " + snapshot.Mode + (snapshot.Paused ? " [PAUSED]" : "") + "  Frame " + snapshot.Cursor + " / " + snapshot.Frames);
             string info = _localError.Length > 0 ? _localError : snapshot.Error.Length > 0 ? snapshot.Error : _pending.Length > 0 ? "Applying edit..." : snapshot.Status;
-            SetLabel(11, ref _footer, info + "\r\n" + (snapshot.PendingEdits ? "Save edits applies the batch and rebuilds if needed. Discard keeps the current run." : "Click/drag inputs. Double-click X/Y to type. Shift+frame selects rows. * = unverified."));
+            SetLabel(11, ref _footer, info + "\r\n" + (snapshot.PendingEdits ? "Save edits applies/rebuilds. Discard keeps the run. Red ~ = previous PU timing, pending re-execution." : "Click/drag inputs. Double-click X/Y. * = unverified. Red ~ = previous PU timing, pending re-execution."));
             for (int i = 3; i <= 6; i++) N.EnableWindow(_controls[i], Editable);
+            N.EnableWindow(_controls[3], Editable && snapshot.UndoCount > 0);
+            N.EnableWindow(_controls[15], Editable && snapshot.RedoCount > 0);
+            N.EnableWindow(_controls[16], Editable && snapshot.CanRecoverDraft && !snapshot.PendingEdits);
             N.EnableWindow(_controls[1], snapshot.CanTransport); N.EnableWindow(_controls[2], snapshot.CanTransport);
+            N.EnableWindow(_controls[14], snapshot.CanTransport);
             N.EnableWindow(_controls[12], Editable && (snapshot.PendingEdits || _cellEdit != IntPtr.Zero));
             N.EnableWindow(_controls[13], Editable && (snapshot.PendingEdits || _cellEdit != IntPtr.Zero));
             if (gridChanged || oldTop != _top || oldAnchor != _anchor || oldEnd != _end)
@@ -333,7 +345,7 @@ namespace Igtap.Tas.UI
             for (int i = 0; i < a.Timeline.Length; i++)
             {
                 var x = a.Timeline[i]; var y = b.Timeline[i];
-                if (x.Frame != y.Frame || x.Pus != y.Pus || x.X != y.X || x.Y != y.Y || x.Jump != y.Jump || x.Dash != y.Dash || x.Reset != y.Reset || x.Menu != y.Menu || x.Verified != y.Verified) return false;
+                if (x.Frame != y.Frame || x.Pus != y.Pus || x.PuTimingPending != y.PuTimingPending || x.X != y.X || x.Y != y.Y || x.Jump != y.Jump || x.Dash != y.Dash || x.Reset != y.Reset || x.Menu != y.Menu || x.Verified != y.Verified) return false;
             }
             return true;
         }
@@ -392,7 +404,7 @@ namespace Igtap.Tas.UI
                             if (loaded && f.Pus > 0) brush = held ? 7 : row == _snapshot.Cursor ? 8 :
                                 row >= Math.Min(_anchor, _end) && row <= Math.Max(_anchor, _end) ? 9 : 6;
                             N.FillRect(dc, ref rect, _brushes[brush]);
-                            string text = c == 0 ? (row == _snapshot.Cursor ? ">" : "") + row.ToString("D6") + (row == _snapshot.Frames ? "+" : loaded && !f.Verified ? "*" : "") :
+                            string text = c == 0 ? (row == _snapshot.Cursor ? ">" : "") + row.ToString("D6") + (row == _snapshot.Frames ? "+" : loaded && f.PuTimingPending ? "~" : loaded && !f.Verified ? "*" : "") :
                                 !loaded ? "..." : c == 8 ? f.X.ToString("0.###", CultureInfo.InvariantCulture) : c == 9 ? f.Y.ToString("0.###", CultureInfo.InvariantCulture) : held ? Titles[c] : "";
                             N.DrawText(dc, text, -1, ref rect, 0x25);
                         }

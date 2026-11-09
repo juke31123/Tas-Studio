@@ -1,0 +1,9 @@
+{
+  "id": "Tas.Studio.Recorder",
+  "displayName": "Tas Studio Gameplay Recorder",
+  "version": "1.1.1",
+  "author": "Juke",
+  "entryAssembly": "TasStudioRecorder.dll",
+  "minLoaderVersion": "1.0.0",
+  "enabled": true
+}

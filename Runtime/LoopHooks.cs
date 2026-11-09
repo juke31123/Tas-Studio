@@ -11,16 +11,22 @@ namespace Igtap.Tas.Runtime
         private sealed class TasEarly { }
         private sealed class TasEnd { }
         private sealed class TasInput { }
+        private sealed class TasBeforePhysics { }
+        private sealed class TasAfterPhysics { }
         public LoopHooks(Action early, Action end, Action input)
         {
             var loop = PlayerLoop.GetCurrentPlayerLoop();
             if (!Append(ref loop, typeof(UnityEngine.PlayerLoop.EarlyUpdate), typeof(TasEarly), early.Invoke) ||
                 !Before(ref loop, typeof(UnityEngine.PlayerLoop.Update.ScriptRunBehaviourUpdate), typeof(TasInput), input.Invoke) ||
+                !Before(ref loop, typeof(UnityEngine.PlayerLoop.FixedUpdate.Physics2DFixedUpdate), typeof(TasBeforePhysics), SimulationCapture.ObserveBeforePhysics) ||
+                !Before(ref loop, typeof(UnityEngine.PlayerLoop.FixedUpdate.Physics2DFixedUpdate), typeof(TasAfterPhysics), AfterPhysics, true) ||
                 !Append(ref loop, typeof(UnityEngine.PlayerLoop.PostLateUpdate), typeof(TasEnd), end.Invoke))
                 throw new NotSupportedException("Unity PlayerLoop phases were not found.");
             PlayerLoop.SetPlayerLoop(loop);
         }
-        private static bool Before(ref PlayerLoopSystem node, Type target, Type marker, PlayerLoopSystem.UpdateFunction callback)
+        private static void AfterPhysics()
+        { SimulationCapture.ObserveAfterPhysics(); GamePatches.Session?.NotifyPhysicsCompleted(); }
+        private static bool Before(ref PlayerLoopSystem node, Type target, Type marker, PlayerLoopSystem.UpdateFunction callback, bool after = false)
         {
             if (node.subSystemList == null) return false;
             for (int i = 0; i < node.subSystemList.Length; i++)
@@ -28,10 +34,10 @@ namespace Igtap.Tas.Runtime
                 if (node.subSystemList[i].type == target)
                 {
                     var children = new List<PlayerLoopSystem>(node.subSystemList);
-                    children.Insert(i, new PlayerLoopSystem { type = marker, updateDelegate = callback });
+                    children.Insert(i + (after ? 1 : 0), new PlayerLoopSystem { type = marker, updateDelegate = callback });
                     node.subSystemList = children.ToArray(); return true;
                 }
-                if (Before(ref node.subSystemList[i], target, marker, callback)) return true;
+                if (Before(ref node.subSystemList[i], target, marker, callback, after)) return true;
             }
             return false;
         }
@@ -53,11 +59,12 @@ namespace Igtap.Tas.Runtime
             var children = new List<PlayerLoopSystem>();
             foreach (var child in node.subSystemList)
             {
-                if (child.type == typeof(TasEarly) || child.type == typeof(TasEnd) || child.type == typeof(TasInput)) continue;
+                if (child.type == typeof(TasEarly) || child.type == typeof(TasEnd) || child.type == typeof(TasInput) ||
+                    child.type == typeof(TasBeforePhysics) || child.type == typeof(TasAfterPhysics)) continue;
                 var copy = child; Remove(ref copy); children.Add(copy);
             }
             node.subSystemList = children.ToArray();
         }
-        public void Dispose() { var loop = PlayerLoop.GetCurrentPlayerLoop(); Remove(ref loop); PlayerLoop.SetPlayerLoop(loop); }
+        public void Dispose() { var loop = PlayerLoop.GetCurrentPlayerLoop(); Remove(ref loop); PlayerLoop.SetPlayerLoop(loop); SimulationCapture.ResetHistory(); }
     }
 }

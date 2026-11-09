@@ -19,6 +19,7 @@ namespace Igtap.Tas.Runtime
         public static WorldWitness Capture()
         {
             var w = new WorldWitness();
+            RunPreferences.Capture(w);
             Put(w, "currencies", globalStats.currencyLookup);
             Put(w, "global-upgrades", globalStats.globalUpgradeDict);
             w.Exact["random"] = JsonUtility.ToJson(UnityEngine.Random.state);

@@ -74,6 +74,11 @@ namespace Igtap.Tas.Core
             movie.Validate();
             return movie;
         }
-        public static Movie Clone(Movie movie) => JsonConvert.DeserializeObject<Movie>(JsonConvert.SerializeObject(movie, Settings), Settings);
+        public static Movie Clone(Movie movie)
+        {
+            var copy = JsonConvert.DeserializeObject<Movie>(JsonConvert.SerializeObject(movie, Settings), Settings);
+            for (int i = 0; i < movie.Frames.Count; i++) copy.Frames[i].PreviousFixedTicks = movie.Frames[i].PreviousFixedTicks;
+            return copy;
+        }
     }
 }

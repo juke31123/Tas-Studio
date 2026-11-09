@@ -39,7 +39,12 @@ namespace Igtap.Tas.Core
         internal static void Invalidate(Movie movie, int start)
         {
             // An edit can change every subsequent state, not only the edited frame.
-            for (int i = start; i < movie.Frames.Count; i++) { movie.Frames[i].Expected = null; movie.Frames[i].FixedTicks = -1; movie.Frames[i].PuPhase = -1; }
+            for (int i = start; i < movie.Frames.Count; i++)
+            {
+                var frame = movie.Frames[i];
+                if (frame.FixedTicks >= 0) frame.PreviousFixedTicks = frame.FixedTicks;
+                frame.Expected = null; frame.World = null; frame.FixedTicks = -1; frame.PuPhase = -1;
+            }
         }
     }
 }
