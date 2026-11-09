@@ -1,3 +1,11 @@
+# Version 0.12.2 search label cleanup
+
+The search selector and current documentation use **Beam search**,
+**Exhaustive input chain** and **Wave search**. This patch changes display text
+and package version metadata. Algorithm identifiers, input generation, movie
+timing and simulator behaviour are unchanged. All 384 standalone checks and
+2,652 workspace checks pass.
+
 # Version 0.12.1 portable section-search validation
 
 The workspace suite passes 2,652 checks, including portable-package integrity,

@@ -1,4 +1,4 @@
-# Bruteforce window (0.12.1 experimental)
+# Bruteforce window (0.12.2 experimental)
 
 Open **Studio > Run > Open Bruteforce window** during a paused recording or replay.
 The controls run in a third native window inside IGTAP. Search evaluation runs
@@ -22,7 +22,7 @@ other frame rates. Candidate verification and playback use the same recorded FPS
 
 ## Workflow
 
-The solver selector offers **Our beam search**, **Our exhaustive input chain**,
+The solver selector offers **Beam search**, **Exhaustive input chain**,
 and **Wave search**. Only Wave search requires the local
 game-code host. It runs the original upstream `OfflineSolver` from the pinned
 dependency, using our frame clock and full worker-owned snapshots. Its shared
@@ -44,8 +44,8 @@ shared archive budget is 64 MiB, in addition to the game worlds and runtime.
 The upstream exact-state convergence shortcut is disabled for frame-adapter runs
 until its equality test covers the frame scheduler; native snapshots still restore.
 
-Our exhaustive chain mode remains useful for timing a specific input sequence.
-Our beam mode remains available for controlled comparisons and independent
+The exhaustive chain mode remains useful for timing a specific input sequence.
+Beam mode remains available for controlled comparisons and independent
 development. Selecting the archive option never silently falls back to beam.
 
 1. Record or replay to the destination. Pause. Opening Bruteforce initially uses the

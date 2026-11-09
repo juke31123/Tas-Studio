@@ -2,7 +2,7 @@
 
 The portable release includes the external game-code simulator. Its game code
 is prepared from the player's installed game on first search, without requiring
-Git, an SDK or a separate .NET installation. It supports our chain/beam search and
+Git, an SDK or a separate .NET installation. It supports beam and input-chain searches and
 Wave search, with verified native prefixes and tested refill,
 zipper and spring interactions. Recorder ZIPs have a variable-timing replay importer.
 See [section-search release scope](docs/SECTION-SEARCH-RELEASE.md) and
@@ -10,11 +10,11 @@ See [section-search release scope](docs/SECTION-SEARCH-RELEASE.md) and
 
 TAS authoring tools for **IGTAP: an Incremental Game That's Also a Platformer**, using the Recharge mod loader.
 
-Author: **Juke**. Current version: **0.12.1**. Mod ID: `Tas.Studio`. Entry assembly: `TasStudio.dll`.
+Author: **Juke**. Current version: **0.12.2**. Mod ID: `Tas.Studio`. Entry assembly: `TasStudio.dll`.
 
 ## Features
 
-- Dedicated **Bruteforce** window: choose a start frame, goal point/radius and allowed abilities, then use our beam search or **Wave search**. An optional exhaustive input-chain mode times a prescribed action sequence. Progress includes archive cells, splices, plateau changes and cached-state replays. Free-camera goal placement and rebindable arrow controls do not enter the recording. **Native verification required.** See [coverage and controls](docs/BRUTEFORCE.md).
+- Dedicated **Bruteforce** window: choose a start frame, goal point/radius and allowed abilities, then use **Beam search** or **Wave search**. An optional **Exhaustive input chain** mode times a prescribed action sequence. Progress includes archive cells, splices, plateau changes and cached-state replays. Free-camera goal placement and rebindable arrow controls do not enter the recording. **Native verification required.** See [coverage and controls](docs/BRUTEFORCE.md).
 - Multi-level **Undo/Redo**, durable draft recovery, and verified live-checkpoint reuse. Edits still apply only when you click **Save edits**.
 - **Checks** tab: export detailed performance profiles or verify a recorded movie with continuous and frame-stepped playback. Periodic world checks cover more than player movement, and atom-door progression stays local to the TAS. See [replay reliability](docs/REPLAY-RELIABILITY.md).
 - **Step PU / F11** advances to the next frame with a physics update and pauses. Available in both desktop windows with a configurable keybind. Red **~** rows retain previous PU timing after edits until re-execution updates them.
@@ -57,7 +57,7 @@ with bundled .NET runtimes and excludes the generated game assembly. The default
 build without that switch is the smaller development package; its static solver
 still needs .NET 10 or a separately registered host.
 
-The build produces `artifacts/Tas.Studio/` and `artifacts/Tas-Studio-0.12.1-clean.zip`. Follow `INSTALL.md` to install the package. Build outputs and downloaded dependencies are ignored by Git.
+The build produces `artifacts/Tas.Studio/` and `artifacts/Tas-Studio-0.12.2-clean.zip`. Follow `INSTALL.md` to install the package. Build outputs and downloaded dependencies are ignored by Git.
 
 ## Source layout
 

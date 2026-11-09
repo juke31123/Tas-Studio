@@ -1,4 +1,7 @@
-# Tas Studio 0.12.1
+# Tas Studio 0.12.2
+
+New in 0.12.2: the search choices are **Beam search**, **Exhaustive input chain**
+and **Wave search**. The label cleanup does not change their search behaviour.
 
 The portable release includes the accurate external simulator and its .NET
 runtime. Extract the complete ZIP into `Recharge/Mods` and use Bruteforce normally.
@@ -9,8 +12,8 @@ Your installed game assemblies are read only; the generated copy stays inside
 the mod's `Bruteforce/Host` directory. A changed game version requires a matching
 Tas Studio package. Keep the entire `Bruteforce` folder when installing/updating.
 
-New in 0.12.0: select **Wave search**, **Our beam search**, or
-**Our exhaustive input chain** in the Bruteforce window. The archive option runs
+New in 0.12.0: select **Wave search**, **Beam search**, or
+**Exhaustive input chain** in the Bruteforce window. The archive option runs
 the pinned upstream solver through our movie-frame adapter; it needs the local
 game-code host described below. Original chain and beam modes remain available.
 Recorder gameplay ZIPs can now be imported and replayed with their recorded

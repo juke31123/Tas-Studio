@@ -22,7 +22,7 @@ namespace Igtap.Tas.DesktopModel
     {
         public Keybinds Bindings = new Keybinds();
         public int Version = 1;
-        public string ModVersion = "0.12.1", Mode = "", Status = "", Name = "", Ack = "", Error = "";
+        public string ModVersion = "0.12.2", Mode = "", Status = "", Name = "", Ack = "", Error = "";
         public int Cursor, Frames, Fps, Rerecords, Page, Revision, CompletedSequence;
         public bool CanEditTimeline, TimelineInput, PendingEdits;
         public int UndoCount, RedoCount;

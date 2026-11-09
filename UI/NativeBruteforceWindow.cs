@@ -64,7 +64,7 @@ namespace Igtap.Tas.UI
             Add(28, "BUTTON", "Verify candidate in game"); Add(29, "BUTTON", "Accept result as draft");
             Add(30, "STATIC", ""); Add(31, "STATIC", "");
             Add(32, "COMBOBOX", "");
-            foreach(var mode in new[] {"Our beam search", "Our exhaustive input chain", "Wave search"}) N.SendText(_controls[32],0x143,IntPtr.Zero,mode);
+            foreach(var mode in new[] {"Beam search", "Exhaustive input chain", "Wave search"}) N.SendText(_controls[32],0x143,IntPtr.Zero,mode);
             N.SendMessage(_controls[32],0x14E,IntPtr.Zero,IntPtr.Zero);
             Add(33, "EDIT", "R:1-30; R+J:1-6; R:1-40");
             N.SendMessage(_controls[33], 0xC5, new IntPtr(4000), IntPtr.Zero);
