@@ -15,6 +15,29 @@ Multi-rate runs are optional developer regression tests.
 
 ## Implemented
 
+Version 0.15.0 adds ordered circular checkpoint state to Beam and chain branches,
+and the Wave frame adapter's native snapshots and archive labels. Native playback
+tracks the same order, including the selected start boundary. A point visited
+early must be visited again in order; all legs retain their physics state.
+
+Cashloop supplies focused single-purchase validation for local CashPerLoop.
+New captures include local-upgrade dictionaries and mutable CashPerLoop box
+state, in addition to currencies and RNG. Economy writes synchronize the original
+local-upgrade objects after purchases and branch restores. Sleeping player bodies
+retain their physical pose instead of receiving a redundant interpolated blend.
+Buy-max, Vman, global CashPerLoop and other upgrade types remain guarded.
+
+Version 0.14.0 restores exported physical body poses independently of interpolated
+render transforms at bootstrap. Invoke dispatch uses its actual deadline without
+an early-fire epsilon. Native observations exposed both cases in the all-FPS
+fixture. The scheduler now reuses stable dispatch buffers, retaining cancellation,
+repeating-invoke and nested-callback behaviour. Metadata caches contain reflection
+layouts only; mutable game state and native snapshot ownership stay per worker.
+
+`TasStudio.EngineHost.exe candidate-check <job.json> <result.json>` replays an
+existing candidate through the current offline host and checks its ordered checkpoints and final goal. It is a
+diagnostic check, never a replacement for native candidate verification.
+
 - A pinned local build of the reference engine's assembly preparation, Unity
   compatibility layer and Box2D backend, using the installed game assembly.
 - A Tas Studio frame adapter that executes the retargeted game's
@@ -143,6 +166,12 @@ from SDK candidate discovery to prevent the native mod from accidentally linking
 against the retargeted game assembly.
 
 ## Comparing a capture
+
+`TasStudio.EngineHost.exe beam-cache-check <job.json>` exercises native branch
+ownership, A/B/A continuation, restoration of game statics, eviction/replay and
+a deliberately small retained snapshot budget. Supply an existing native job
+with at least 32 safe seed frames. Results go to `beam-cache-checks.json` beside
+the job. It reads the captured fixture and never starts or modifies the game.
 
 With the game closed, the reproducible controlled capture is:
 

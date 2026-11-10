@@ -28,13 +28,15 @@ namespace Igtap.Tas.Runtime
         private static JiggleDropScript[] _orbs = Array.Empty<JiggleDropScript>();
         private static PlatformMover[] _movers = Array.Empty<PlatformMover>();
         private static SpringScript[] _springs = Array.Empty<SpringScript>();
+        private static upgradeBox[] _boxes=Array.Empty<upgradeBox>();
+        private static localUpgrades[] _upgrades=Array.Empty<localUpgrades>();
         private sealed class RestHistory { public int Pus; public bool Awake; public Vector2 Position; public float Rotation; }
         private static readonly Dictionary<Rigidbody2D,RestHistory> MoverRest = new Dictionary<Rigidbody2D,RestHistory>();
         private static readonly FieldInfo MoverBody = typeof(PlatformMover).GetField("body", BindingFlags.Instance | BindingFlags.NonPublic);
         public static void BeginHistory() { MoverRest.Clear(); }
         public static bool CollectHistory;
         public static void ResetHistory()
-        { _historyBody = null; _pending = _historyValid = CollectHistory = false; _orbs = Array.Empty<JiggleDropScript>(); _movers = Array.Empty<PlatformMover>(); _springs = Array.Empty<SpringScript>(); MoverRest.Clear(); SimulationCoroutineCapture.Clear(); }
+        { _historyBody = null; _pending = _historyValid = CollectHistory = false; _orbs = Array.Empty<JiggleDropScript>(); _movers = Array.Empty<PlatformMover>(); _springs = Array.Empty<SpringScript>(); _boxes=Array.Empty<upgradeBox>(); _upgrades=Array.Empty<localUpgrades>(); MoverRest.Clear(); SimulationCoroutineCapture.Clear(); }
         public static void ObserveBeforePhysics()
         {
             var s = GamePatches.Session; _pending = false;
@@ -75,6 +77,8 @@ namespace Igtap.Tas.Runtime
             _orbs = objects.SelectMany(go => go.GetComponents<JiggleDropScript>()).Where(o => o != null).ToArray();
             _movers = objects.SelectMany(go => go.GetComponents<PlatformMover>()).Where(m => m != null).ToArray();
             _springs = objects.SelectMany(go => go.GetComponents<SpringScript>()).Where(s => s != null).ToArray();
+            _boxes=objects.SelectMany(go=>go.GetComponents<upgradeBox>()).Where(box=>box.upgrade==localUpgrades.localUpgradeSet.cashPerLoop).ToArray();
+            _upgrades=objects.SelectMany(go=>go.GetComponents<localUpgrades>()).ToArray();
             string randomBefore=JsonUtility.ToJson(UnityEngine.Random.state);
             using var geometry=new SimulationGeometryCapture();
             var nativeShapes=new Dictionary<int,JObject>();
@@ -192,7 +196,7 @@ namespace Igtap.Tas.Runtime
                 previous.Release = session.PreviousInput.Held & ~previous.Held;
                 previous.ExactEdges = true;
             }
-            var trace = new SimulationTrace { CaptureOrbs = true, CaptureMovers = true, CaptureSprings = true, Fps = session.Movie.FrameRate, StartFrame = session.Cursor, StartPhase = session.PuPhase,
+            var trace = new SimulationTrace { CaptureUpgrades=true, CaptureOrbs = true, CaptureMovers = true, CaptureSprings = true, Fps = session.Movie.FrameRate, StartFrame = session.Cursor, StartPhase = session.PuPhase,
                 AnimationHash = SimulationTraceComparer.FileHash(Path.Combine(directory, "animation.json")),
                 Previous = previous, GameHash = session.Movie.GameHash, WorldHash = SimulationTraceComparer.FileHash(Path.Combine(directory, "world.json")), Coverage = coverage.ToArray() };
             trace.Samples.Add(Sample(session, 0, 0, "start"));
@@ -215,6 +219,8 @@ namespace Igtap.Tas.Runtime
             sample.Fields["clock/capture-ticks"] = Time.captureDeltaTimeRational.Count.ToString(CultureInfo.InvariantCulture);
             SimulationFieldCapture.AddRandom(sample.Fields, UnityEngine.Random.state);
             SimulationFieldCapture.AddEconomy(sample.Fields, globalStats.currencyLookup, globalStats.globalUpgradeDict);
+            foreach(var box in _boxes)if(box!=null)SimulationFieldCapture.AddCashBox(sample.Fields,box,box.GetInstanceID());
+            foreach(var upgrades in _upgrades)if(upgrades!=null)SimulationFieldCapture.AddLocalUpgrades(sample.Fields,upgrades,upgrades.GetInstanceID());
             foreach (var orb in _orbs) if (orb != null) SimulationFieldCapture.AddOrb(sample.Fields, orb, orb.GetInstanceID());
             foreach (var spring in _springs) if (spring != null) SimulationFieldCapture.AddScript(sample.Fields, spring, "spring/" + spring.GetInstanceID());
             foreach (var mover in _movers) if (mover != null) {

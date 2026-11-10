@@ -20,7 +20,8 @@ namespace Igtap.Tas.Core
         {
             TypeNameHandling = TypeNameHandling.None, MaxDepth = 32,
             MissingMemberHandling = MissingMemberHandling.Error,
-            FloatParseHandling = FloatParseHandling.Double
+            FloatParseHandling = FloatParseHandling.Double,DateParseHandling=DateParseHandling.None,
+            Converters={new MovieJson()}
         };
         public MovieStore(string directory) { DirectoryPath = Path.GetFullPath(directory); Directory.CreateDirectory(DirectoryPath); }
         public string PathFor(string name)
@@ -57,7 +58,8 @@ namespace Igtap.Tas.Core
                 using (var stream = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None))
                 using (var writer = new StreamWriter(stream, new UTF8Encoding(false)))
                 {
-                    writer.Write(JsonConvert.SerializeObject(movie, Formatting.Indented, Settings));
+                    using(var json=new JsonTextWriter(writer){Formatting=Formatting.Indented,CloseOutput=false})
+                    {JsonSerializer.Create(Settings).Serialize(json,movie);json.Flush();}
                     writer.Flush(); stream.Flush(true);
                 }
                 // Keep the previous successful save if power is lost during replacement.
@@ -70,7 +72,11 @@ namespace Igtap.Tas.Core
         {
             var path = PathFor(name);
             if (new FileInfo(path).Length > 256L * 1024 * 1024) throw new InvalidOperationException("Movie exceeds the 256 MiB import limit.");
-            var movie = JsonConvert.DeserializeObject<Movie>(File.ReadAllText(path), Settings) ?? throw new InvalidOperationException("Movie is null.");
+            using var stream=File.OpenRead(path);
+            using var text=new StreamReader(stream);
+            using var json=new JsonTextReader(text);
+            var serializer=JsonSerializer.Create(Settings);serializer.CheckAdditionalContent=true;
+            var movie=serializer.Deserialize<Movie>(json)??throw new InvalidOperationException("Movie is null.");
             movie.Validate();
             return movie;
         }

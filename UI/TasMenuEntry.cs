@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Igtap.Tas.Core;
 using Recharge.ModApi;
 using UnityEngine;
 
@@ -25,7 +26,7 @@ namespace Igtap.Tas.UI
         private void Install(pauseMenuScript menu)
         {
             if (menu == null) return;
-            var panel = PauseMenuHelper.AddPanelRow(menu, "IgtapTasStudio", "Tas Studio");
+            var panel = PauseMenuHelper.AddPanelRow(menu, "IgtapTasStudio", "Tas Studio v" + StudioVersion.Text);
             _panels.RemoveAll(p => p == null);
             if (panel == null || _panels.Contains(panel)) return;
             _panels.Add(panel); _build(panel);

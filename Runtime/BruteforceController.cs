@@ -13,9 +13,32 @@ namespace Igtap.Tas.Runtime
     internal sealed class BruteforceController : IDisposable
     {
         private readonly TasSession _session;
-        private readonly string _root, _bindingsPath;
+        private readonly string _root;
         private Process _worker;
         private string _directory, _sourceHash;
+        private string _workerError="";
+        private CheckpointRoute _verificationRoute;
+        private int _verifiedCheckpoint;
+        public SearchBody[] MapGeometry {get;private set;}=Array.Empty<SearchBody>();
+        public int MapRevision {get;private set;}
+        public MotionVector MapPlayer {get;private set;}
+        public void CaptureMap()
+        {
+            if(!CanStart)throw new InvalidOperationException("Pause the TAS and finish pending edits before capturing the map.");
+            if((_session.Adapter as object) is ISearchMapCapture map)MapGeometry=map.CaptureSearchMap(_session);
+            else{var job=new SearchJob{Fps=_session.Movie.FrameRate,Options=Options.Copy()};_session.Adapter.CaptureSearch(_session,job);MapGeometry=job.Geometry;}
+            MapPlayer=_session.Adapter.SearchWorldPosition();MapRevision++;
+        }
+        public void SetCheckpoints(SearchCheckpoint[] points)
+        {
+            if(Busy || _session.SearchPreview)throw new InvalidOperationException("Finish the active search/preview before changing checkpoints.");
+            var next=Options.Copy();next.Checkpoints=points==null?throw new ArgumentNullException(nameof(points)):Array.ConvertAll(points,p=>p?.Copy());
+            if(points.Length>0){var last=points[points.Length-1]??throw new ArgumentException("Missing checkpoint.");next.GoalX=last.X;next.GoalY=last.Y;next.GoalRadius=last.Radius;next.GoalSet=true;}
+            next.Validate(_session.Movie.Frames.Count);Options=next;_verified=false;
+            Result=new SearchResult{Status="Checkpoints changed",Message="Run a new search for this ordered route.",CheckpointCount=new CheckpointRoute(next).Count};
+        }
+        public void AppendCheckpoint(float x,float y,float radius)
+        {var points=Options.Checkpoints.ToList();points.Add(new SearchCheckpoint{X=x,Y=y,Radius=radius});SetCheckpoints(points.ToArray());}
         private Movie _source, _verification;
         private bool _preparing, _verifying, _verified;
         private double _nextPoll;
@@ -33,21 +56,16 @@ namespace Igtap.Tas.Runtime
         public SearchOptions Options { get; private set; } = new SearchOptions();
         public SearchResult Result { get; private set; } = new SearchResult();
         public SearchJob Job { get; private set; }
-        public GoalCameraBindings CameraBindings { get; private set; }
-        public IGoalPlacement GoalPlacement;
         public bool Busy => _setup != null || _preparing || _verifying || _worker != null;
-        public bool PlacingGoal => GoalPlacement?.Active == true;
         public bool Verifying => _verifying;
         public bool CanAccept => _verified && Result.Inputs.Length > 0 && !Busy && _session.Active && _session.Frozen && !_session.HasPendingEdits;
-        public bool CanStart => !Busy && !PlacingGoal && _session.Active && _session.Frozen && _session.CanEditTimeline && !_session.HasPendingEdits;
+        public bool CanStart => !Busy && _session.Active && _session.Frozen && _session.CanEditTimeline && !_session.HasPendingEdits;
         internal string WorkerPath { get; set; }
         internal string EngineWorkerPath { get; set; }
         public BruteforceController(TasSession session, string root)
         {
-            _session = session; _root = Path.Combine(root, "search"); _bindingsPath = Path.Combine(root, "goal-camera.json");
+            _session = session; _root = Path.Combine(root, "search");
             Directory.CreateDirectory(_root);
-            try { CameraBindings = GoalCameraBindings.Load(_bindingsPath); }
-            catch { CameraBindings = new GoalCameraBindings(); }
             WorkerPath = Path.Combine(Path.GetDirectoryName(typeof(BruteforceController).Assembly.Location), "Solver", "TasStudio.Solver.exe");
             try {
                 EngineWorkerPath=EngineHostLocation.Find(root);
@@ -65,13 +83,14 @@ namespace Igtap.Tas.Runtime
         }
         public void Configure(SearchOptions options)
         {
-            if (Busy || PlacingGoal) throw new InvalidOperationException("Cancel the current search/goal selection before changing its options.");
+            if (Busy) throw new InvalidOperationException("Cancel the current search before changing its options.");
             options.Validate(_session.Movie.Frames.Count); Options = options.Copy(); _verified = false;
         }
         public void SetGoal(float x, float y)
         {
             if (Busy || !Movie.Finite(x) || !Movie.Finite(y)) throw new InvalidOperationException("Cannot change this goal while a search is active.");
             Options.GoalX = x; Options.GoalY = y; Options.GoalSet = true; _verified = false;
+            if(Options.Checkpoints.Length>0){var last=Options.Checkpoints[Options.Checkpoints.Length-1];last.X=x;last.Y=y;}
             if (Job != null) Result = new SearchResult { Simulator = string.IsNullOrEmpty(EngineWorkerPath) ? SearchJob.Backend : EngineSearchSpec.Backend,
                 Status = "Goal changed", Message = "Start a new search for this goal." };
         }
@@ -80,16 +99,6 @@ namespace Igtap.Tas.Runtime
             if (!_session.Active || !_session.Frozen || _session.WaitingForLoad || !_session.Adapter.IsAlive)
                 throw new InvalidOperationException("Pause the TAS in gameplay to use the current player position as the goal.");
             var position = _session.Adapter.SearchWorldPosition(); SetGoal(position.X, position.Y);
-        }
-        public void ToggleGoalPlacement()
-        {
-            if (GoalPlacement == null) throw new NotSupportedException("Goal camera is unavailable.");
-            if (PlacingGoal) GoalPlacement.End();
-            else { if (!CanStart) throw new InvalidOperationException("Pause the run and finish any edits first."); GoalPlacement.Begin(); }
-        }
-        public void SaveCameraBinding(int index, string key)
-        {
-            var candidate = CameraBindings.Copy(); candidate.Assign(index, key); candidate.Save(_bindingsPath); CameraBindings = candidate;
         }
         public void Start(SearchOptions options)
         {
@@ -112,6 +121,7 @@ namespace Igtap.Tas.Runtime
         }
         private void StartPrepared()
         {
+            _workerError="";
             if (!_session.Active || !_session.Frozen || _session.HasPendingEdits || Options.StartFrame > _session.Cursor)
                 throw new InvalidOperationException("Pause the TAS at or after the selected start frame and save edits before searching.");
             _engineCapture=(_session.Adapter as object) as IEngineSearchCapture;
@@ -126,7 +136,7 @@ namespace Igtap.Tas.Runtime
             _source = _session.Movie.CopyForEdit(); _sourceHash = SearchFiles.Hash(_source); _verified = false;
             Job = new SearchJob { Options = Options.Copy(), Fps = _source.FrameRate, MovieHash = _sourceHash,
                 PrefixHash = SearchFiles.PrefixHash(_source, Options.StartFrame), GameHash = _source.GameHash, Scene = _source.Scene,
-                SeedInputs = _source.Frames.Skip(Options.StartFrame).Take(Options.Horizon).Select(f => f.Input).ToArray() };
+                SeedInputs = _source.Frames.Skip(Options.StartFrame).Take(Options.FrameLimit).Select(f => f.Input).ToArray() };
             if(_useEngine) Job.Simulator=EngineSearchSpec.Backend;
             _directory = Path.Combine(_root, Job.Id); Directory.CreateDirectory(_directory);
             SearchFiles.Write(Path.Combine(_directory, "original.tas.json"), _source);
@@ -165,6 +175,8 @@ namespace Igtap.Tas.Runtime
         }
         public void ObserveFrame()
         {
+            if(_verifying && _session.Cursor>=Options.StartFrame && _verificationRoute!=null)
+                _verifiedCheckpoint=_verificationRoute.Advance(_verifiedCheckpoint,_session.Adapter.SearchWorldPosition());
             if(!_preparing || !_useEngine || _enginePrefix==null) return;
             int frame=_session.Cursor-1;
             if(frame!=_enginePrefix.Inputs.Count || frame>=Options.StartFrame) throw new InvalidOperationException("Engine prefix capture skipped a frame.");
@@ -173,9 +185,10 @@ namespace Igtap.Tas.Runtime
         }
         public void Tick(double now)
         {
-            GoalPlacement?.Tick();
             try
             {
+                if(_verifying && _verificationRoute!=null && _session.Mode==SessionMode.Playback && _session.Cursor==Options.StartFrame)
+                    _verifiedCheckpoint=_verificationRoute.Advance(_verifiedCheckpoint,_session.Adapter.SearchWorldPosition());
                 if (_setup != null && _setup.IsCompleted)
                 {
                     var setup = _setup; _setup = null;
@@ -203,15 +216,19 @@ namespace Igtap.Tas.Runtime
                 {
                     _nextPoll = now + .15;
                     string path = Path.Combine(_directory, "result.json"); bool exited = _worker.HasExited;
-                    if (!File.Exists(path)) path = Path.Combine(_directory, "progress.json");
+                    bool final=File.Exists(path);
+                    if (!final) path = Path.Combine(_directory, "progress.json");
                     if (File.Exists(path))
                     {
-                        var incoming = SearchFiles.Read<SearchResult>(path);
-                        if (incoming != null && incoming.Version == 1 && incoming.JobId == Job.Id && incoming.MovieHash == _sourceHash && incoming.Simulator==Job.Simulator) Result = incoming;
+                        SearchResult incoming;
+                        if(!final && !exited)SearchFiles.TryReadProgress(path,out incoming);
+                        else incoming=SearchFiles.Read<SearchResult>(path);
+                        if (_workerError.Length==0 && incoming != null && incoming.Version == 1 && incoming.JobId == Job.Id && incoming.MovieHash == _sourceHash && incoming.Simulator==Job.Simulator) Result = incoming;
                     }
                     if (exited)
                     {
-                        if (!Result.Finished) { Result.Finished = true; Result.Status = "Worker failed"; Result.Message = "The external worker exited without a valid final result. See search/" + Job.Id + "."; }
+                        if (_workerError.Length>0)Result.Finished=true;
+                        else if (!Result.Finished) { Result.Finished = true; Result.Status = "Worker failed"; Result.Message = "The external worker exited without a valid final result. See search/" + Job.Id + "."; }
                         _worker.Dispose(); _worker = null;
                     }
                 }
@@ -222,29 +239,37 @@ namespace Igtap.Tas.Runtime
                     else if (_session.Mode == SessionMode.Complete && _session.Frozen)
                     {
                         var at = _session.Adapter.SearchWorldPosition();
-                        double dx = at.X - Job.Options.GoalX, dy = at.Y - Job.Options.GoalY;
+                        _verifiedCheckpoint=_verificationRoute.Advance(_verifiedCheckpoint,at);var last=_verificationRoute[_verificationRoute.Count-1];
+                        double dx = at.X - last.X, dy = at.Y - last.Y;
                         ObserveResources(_session.Adapter.SearchResources());
-                        _verified = _policyFailure == null && _session.Adapter.SearchResources().Alive && dx * dx + dy * dy <= Job.Options.GoalRadius * Job.Options.GoalRadius;
+                        _verified = _policyFailure == null && _session.Adapter.SearchResources().Alive && _verifiedCheckpoint==_verificationRoute.Count && dx * dx + dy * dy <= last.Radius*last.Radius;
                         _verifying = false; Result.Verification = _verified ? "Goal verified in game" : "Rejected";
-                        Result.Message = _verified ? "Native replay reached the goal. Accept result stages a replacement from frame " + Options.StartFrame + ". Save edits applies it." :
-                            _policyFailure ?? "The native replay did not reach the predicted goal alive. Keep the original TAS and adjust the simulation/search.";
-                        SearchFiles.Write(Path.Combine(_directory, "verification.json"), new { Passed = _verified, At = at, Job.Options.GoalX, Job.Options.GoalY, Job.Options.GoalRadius,
+                        Result.CheckpointsReached=_verifiedCheckpoint;Result.CheckpointCount=_verificationRoute.Count;
+                        Result.Message = _verified ? "Native replay visited every checkpoint in order and reached the finish. Accept result stages a replacement from frame " + Options.StartFrame + ". Save edits applies it." :
+                            _policyFailure ?? "The native replay did not visit every checkpoint in order and finish alive ("+_verifiedCheckpoint+" / "+_verificationRoute.Count+"). Keep the original TAS and adjust the simulation/search.";
+                        SearchFiles.Write(Path.Combine(_directory, "verification.json"), new { Passed = _verified, At = at, CheckpointsReached=_verifiedCheckpoint, CheckpointCount=_verificationRoute.Count,Job.Options.GoalX, Job.Options.GoalY, Job.Options.GoalRadius,
                             Scope = "Native goal reachability; experimental simulator parity is not certified." });
                     }
                 }
             }
-            catch (Exception e) { Cancel(); Result.Status = "Error"; Result.Message = e.Message; }
+            catch (Exception e)
+            {
+                if(_worker!=null)_workerError=e.Message;
+                Cancel(); Result.Status = "Error"; Result.Message = e.Message;
+                try{if(_directory!=null && Directory.Exists(_directory))SearchFiles.Write(Path.Combine(_directory,"controller-error.json"),new {Error=e.ToString()});}catch{}
+            }
         }
         public void Verify()
         {
-            if (Busy || PlacingGoal || _session.SearchPreview || Result.Inputs.Length == 0 || Job == null) throw new InvalidOperationException("Wait for a candidate and finish the previous preview before verifying it.");
+            if (Busy || _session.SearchPreview || Result.Inputs.Length == 0 || Job == null) throw new InvalidOperationException("Wait for a candidate and finish the previous preview before verifying it.");
             CheckSource();
             if (SearchFiles.Hash(Options) != SearchFiles.Hash(Job.Options)) throw new InvalidOperationException("Search options changed. Run a new search.");
-            if (Result.Inputs.Length > Options.Horizon) throw new InvalidOperationException("Candidate exceeds the configured horizon.");
+            if (Result.Inputs.Length > Options.FrameLimit) throw new InvalidOperationException("Candidate exceeds the configured horizon.");
             Buttons allowed = ((Options.Abilities & SearchAbilities.Jump) != 0 ? Buttons.Jump : 0) | ((Options.Abilities & SearchAbilities.Dash) != 0 ? Buttons.Dash : 0);
             if (Result.Inputs.Any(input => !Movie.Finite(input.X) || !Movie.Finite(input.Y) || Math.Abs(input.X) > 1 || Math.Abs(input.Y) > 1 ||
                 ((input.Held | input.Press | input.Release) & ~allowed) != 0)) throw new InvalidOperationException("Candidate contains disabled or invalid input actions.");
             _trackingResources = false; _policyFailure = null;
+            _verificationRoute=new CheckpointRoute(Job.Options);_verifiedCheckpoint=0;
             _verification = Candidate(); _session.VerifySearchCandidate(_verification); _verifying = true; _verified = false;
             Result.Verification = "Verifying in game"; Result.Message = "Native replay of the original prefix and candidate; gameplay inputs are locked.";
         }
@@ -289,7 +314,6 @@ namespace Igtap.Tas.Runtime
         {
             _setupCancelled = true; _setupCancellation?.Cancel();
             _engineCapture?.EndEngineCapture(); _engineCapture=null; _enginePrefix=null;
-            GoalPlacement?.End();
             if (_directory != null && _worker != null) File.WriteAllText(Path.Combine(_directory, "cancel"), "cancel");
             if (_preparing || _verifying) _session.PauseSearchOperation();
             _preparing = _verifying = false; _verified = false;
@@ -302,7 +326,7 @@ namespace Igtap.Tas.Runtime
         }
         public void Dispose()
         {
-            Cancel(); GoalPlacement?.Dispose();
+            Cancel();
             if (_setup != null)
             {
                 var cancellation = _setupCancellation;

@@ -49,8 +49,11 @@ public sealed class EngineProbe : MonoBehaviour
     string[] searchModes={"chain","beam"};int searchModeIndex;
     string SearchMode=>searchModes[searchModeIndex];
     int searchStart = 100, searchEnd = 130;
+    int searchWorkers=2;
     string searchChain;
     SearchAbilities searchAbilities;
+    SearchCheckpoint[] searchCheckpoints=Array.Empty<SearchCheckpoint>();
+    string compactHash,compactName;
     int physicsDiagnosticsEnd;
     int timeoutSeconds = 180;
     PlatformMover[] movers;
@@ -81,6 +84,7 @@ public sealed class EngineProbe : MonoBehaviour
         if(File.Exists(Path.Combine(Root,"search-range.txt"))) {
             var range=File.ReadAllText(Path.Combine(Root,"search-range.txt")).Trim().Split(','); searchStart=int.Parse(range[0]); searchEnd=int.Parse(range[1]);
         }
+        if(File.Exists(Path.Combine(Root,"search-workers.txt")))searchWorkers=int.Parse(File.ReadAllText(Path.Combine(Root,"search-workers.txt")));
         if (File.Exists(Path.Combine(Root,"rates.txt"))) rates=File.ReadAllText(Path.Combine(Root,"rates.txt")).Split(',').Select(int.Parse).ToArray();
         if (File.Exists(Path.Combine(Root, "reference.tas.json")))
         {
@@ -325,6 +329,7 @@ public sealed class EngineProbe : MonoBehaviour
 
     void UpdateReference()
     {
+        if(stage>=20){UpdateCompactReplay();return;}
         if(stage>=10) { UpdateSearchSmoke(); return; }
         if (stage == 0)
         {
@@ -371,6 +376,7 @@ public sealed class EngineProbe : MonoBehaviour
 
     void FinishReference()
     {
+        BenchmarkRuntime();
         trace.Validate(); SearchFiles.Write(Path.Combine(dir, "native.trace.json"), trace);
         var adapter = Get("Adapter");
         var goal = (MotionVector)adapter.GetType().GetMethod("SearchWorldPosition", Flags).Invoke(adapter, null);
@@ -399,9 +405,76 @@ public sealed class EngineProbe : MonoBehaviour
             var end=trace.Samples.Last(s => s.Frame==searchEnd-1 && s.Phase=="frame-end");
             float Number(string key) => BitConverter.ToSingle(BitConverter.GetBytes(Convert.ToInt32(end.Fields[key],16)),0);
             searchGoalX=Number("body/position/x")-Number("origin/x"); searchGoalY=Number("body/position/y")-Number("origin/y");
+            if(File.Exists(Path.Combine(Root,"search-checkpoints.txt")))
+            {
+                searchCheckpoints=Enumerable.Range(1,3).Select(part=>{
+                    int at=searchStart+(searchEnd-searchStart)*part/3-1;
+                    var sample=trace.Samples.Last(s=>s.Frame==at&&s.Phase=="frame-end");
+                    float Value(string key)=>BitConverter.ToSingle(BitConverter.GetBytes(Convert.ToInt32(sample.Fields[key],16)),0);
+                    return new SearchCheckpoint{X=Value("body/position/x")-Value("origin/x"),Y=Value("body/position/y")-Value("origin/y"),Radius=1};
+                }).ToArray();
+            }
             trace=null; stage=10; Call("TogglePause"); return;
         }
-        trace = null; Call("Stop");
+        trace = null; FinishRecording();
+    }
+
+    void FinishRecording()
+    {
+        if(File.Exists(Path.Combine(Root,"compact-replay.txt")))
+        {
+            if(!Frozen)Call("TogglePause");Call("Save");
+            compactHash=SearchFiles.Hash((Movie)Get("Movie"));compactName=(string)session.GetType().GetField("FileName",Flags).GetValue(session);
+            stage=20;Log("Saved compact movie; preparing native reload and two-pass replay audit.");
+        }
+        else stage=3;
+        Call("Stop");
+    }
+    void UpdateCompactReplay()
+    {
+        if(stage==20&&!Active&&(bool)Get("IsMainMenu"))
+        {
+            stage=21;Queue(()=>{
+                Call("LoadNamed",compactName);
+                if(SearchFiles.Hash((Movie)Get("Movie"))!=compactHash)throw new InvalidDataException("Compact file changed its expanded movie fingerprint.");
+                var audit=Get("Audit");audit.GetType().GetMethod("Start",Flags).Invoke(audit,null);stage=22;
+                Log("Loaded compact movie with identical fingerprint; auditing continuous and frame-stepped native playback.");
+            });
+        }
+        else if(stage==22)
+        {
+            var audit=Get("Audit");if((bool)audit.GetType().GetProperty("Running",Flags).GetValue(audit))return;
+            string result=(string)audit.GetType().GetProperty("Result",Flags).GetValue(audit);
+            if(!result.StartsWith("PASS:",StringComparison.Ordinal))throw new InvalidOperationException("Compact replay audit failed: "+result);
+            string report=(string)audit.GetType().GetProperty("ReportPath",Flags).GetValue(audit);
+            File.Move(report,Path.Combine(Root,"compact-replay.json"));stage=3;Log("PASS compact file reload: "+result);
+        }
+    }
+
+    void BenchmarkRuntime()
+    {
+        string parser=Path.Combine(Root,"progress-parser.json");SearchFiles.Write(parser,new SearchResult());
+        if(SearchFiles.Read<SearchResult>(parser).NearestDistance!=double.MaxValue)throw new InvalidOperationException("Native progress parser changed the unknown-distance sentinel.");
+        long allocationBefore=GC.GetAllocatedBytesForCurrentThread();GC.KeepAlive(new byte[4096]);
+        bool allocationSupported=GC.GetAllocatedBytesForCurrentThread()>allocationBefore;
+        var adapter=Get("Adapter");
+        var probe=adapter.GetType().GetMethod("Probe",Flags);
+        var world=adapter.GetType().GetMethod("CaptureWorld",Flags);
+        object Measure(MethodInfo method,int count)
+        {
+            method.Invoke(adapter,null);
+            string expected=SearchFiles.Hash(method.Invoke(adapter,null));
+            long allocated=GC.GetAllocatedBytesForCurrentThread();
+            var clock=System.Diagnostics.Stopwatch.StartNew();
+            object last=null;
+            for(int i=0;i<count;i++)last=method.Invoke(adapter,null);
+            clock.Stop();allocated=GC.GetAllocatedBytesForCurrentThread()-allocated;
+            if(SearchFiles.Hash(last)!=expected)throw new InvalidOperationException("A paused runtime benchmark mutated its observations.");
+            return new {Count=count,Milliseconds=clock.Elapsed.TotalMilliseconds,MillisecondsPerCall=clock.Elapsed.TotalMilliseconds/count,
+                AllocatedBytes=allocationSupported?(long?)allocated:null,BytesPerCall=allocationSupported?(double?)(allocated/(double)count):null,Hash=expected};
+        }
+        SearchFiles.Write(Path.Combine(Root,"runtime-benchmark.json"),new {Player=Measure(probe,256),World=Measure(world,16),
+            AllocationCounterSupported=allocationSupported,Scope="Paused main-thread observations; excludes game, rendering and pacing. No forced GC. Unsupported Mono allocation counters are null."});
     }
     object Search => Get("Search");
     object SearchGet(string name) => Search.GetType().GetProperty(name,Flags).GetValue(Search);
@@ -426,8 +499,12 @@ public sealed class EngineProbe : MonoBehaviour
                 }
                 var source=(Movie)Get("Movie"); searchSourceHash=SearchFiles.Hash(source); searchSourceFrames=source.Frames.Count;
                 SearchFiles.Write(Path.Combine(Root,"search-before.tas.json"),source);
+                bool checkpointBudgets=File.Exists(Path.Combine(Root,"search-checkpoint-budgets.txt"));
                 SearchCall("Start",new SearchOptions {StartFrame=searchStart,GoalSet=true,GoalX=searchGoalX,GoalY=searchGoalY,GoalRadius=1,
-                    Horizon=searchEnd-searchStart+2,Seconds=20,Workers=2,BeamWidth=16,Mode=SearchMode,Chain=searchChain,Abilities=searchAbilities});
+                    Horizon=checkpointBudgets?1:searchEnd-searchStart+2,Seconds=checkpointBudgets?3:20,Workers=searchWorkers,
+                    UseFrameTarget=checkpointBudgets,FrameAllowance=searchEnd-searchStart+10,SecondsPerCheckpoint=checkpointBudgets,
+                    UseCheckpointLookahead=checkpointBudgets,CheckpointLookaheadFrames=12,
+                    ExperimentalWorkStealing=File.Exists(Path.Combine(Root,"search-stealing.txt")),BeamWidth=16,Mode=SearchMode,Chain=searchChain,Abilities=searchAbilities,Checkpoints=searchCheckpoints});
                 Log("Started native controller -> engine host " + SearchMode + " search.");
             });
         }
@@ -449,8 +526,11 @@ public sealed class EngineProbe : MonoBehaviour
                 if(!(bool)Get("HasPendingEdits") || SearchFiles.Hash((Movie)Get("Movie"))!=searchSourceHash || ((Movie)Get("Movie")).Frames.Count!=searchSourceFrames)
                     throw new InvalidOperationException("Accept must stage a draft and retain the original input suffix until Save edits.");
                 var result=(SearchResult)SearchGet("Result"); var job=(SearchJob)SearchGet("Job");
+                if(job.Options.SecondsPerCheckpoint&&(result.CheckpointsReached!=job.Options.Checkpoints.Length||result.Inputs.Length<=job.Options.Horizon||result.Inputs.Length>job.Options.FrameLimit||result.LookaheadSimulatedFrames==0))
+                    throw new InvalidOperationException("Checkpoint budget smoke did not exercise the allowance, ordered stages and lookahead.");
                 SearchFiles.Write(Path.Combine(Root,"search-"+SearchMode+"-smoke.json"),new {Passed=true,job.Id,job.Fps,job.Simulator,NativeVerified=true,DraftStaged=true,
-                    OriginalInputsRetained=true,Frames=result.Inputs.Length,result.Evaluated,GoalX=searchGoalX,GoalY=searchGoalY});
+                    OriginalInputsRetained=true,Frames=result.Inputs.Length,result.Evaluated,result.CheckpointsReached,result.CheckpointCount,result.LookaheadSimulatedFrames,result.Seconds,
+                    job.Options.UseFrameTarget,job.Options.FrameAllowance,job.Options.SecondsPerCheckpoint,job.Options.CheckpointLookaheadFrames,GoalX=searchGoalX,GoalY=searchGoalY});
                 Log("PASS engine " + SearchMode + " candidate verified in game; acceptance staged only a draft.");
                 Call("DiscardTimelineEdits");
             });
@@ -458,7 +538,7 @@ public sealed class EngineProbe : MonoBehaviour
         else if(stage==13 && Frozen && Mode=="Recording" && !(bool)Get("HasPendingEdits"))
         {
             if(++searchModeIndex<searchModes.Length)stage=10;
-            else {SearchFiles.Write(Path.Combine(Root,"search-smoke.json"),new {Passed=true,Modes=searchModes}); stage=3; Queue(() => Call("Stop"));}
+            else {SearchFiles.Write(Path.Combine(Root,"search-smoke.json"),new {Passed=true,Modes=searchModes}); stage=3; Queue(FinishRecording);}
         }
     }
 }

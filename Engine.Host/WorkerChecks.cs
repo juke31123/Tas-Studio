@@ -51,8 +51,8 @@ internal static class WorkerChecks
                 {
                     var simulation = EngineFixture.Load(directory, native);
                     using var digest = new Digest(); int frame = 0;
-                    digest.Add(EngineFixture.Sample(simulation, frame, 0, "start", native.CaptureOrbs, native.CaptureMovers, native.CaptureSprings));
-                    simulation.StudioSample = (pu, phase) => digest.Add(EngineFixture.Sample(simulation, frame, pu, phase, native.CaptureOrbs, native.CaptureMovers, native.CaptureSprings));
+                    digest.Add(EngineFixture.Sample(simulation, frame, 0, "start", native.CaptureOrbs, native.CaptureMovers, native.CaptureSprings,native.CaptureUpgrades));
+                    simulation.StudioSample = (pu, phase) => digest.Add(EngineFixture.Sample(simulation, frame, pu, phase, native.CaptureOrbs, native.CaptureMovers, native.CaptureSprings,native.CaptureUpgrades));
                     FrameInput previous = native.Previous;
                     int end = branch ? Math.Min(native.Inputs.Count, 1200) : native.Inputs.Count;
                     for (; frame < end; frame++)

@@ -25,6 +25,10 @@ internal static class EngineSearchTests
             Options=new SearchOptions {StartFrame=0,GoalSet=true,GoalX=3,GoalY=0,GoalRadius=1,Horizon=3,Seconds=2,Workers=2,
                 Abilities=SearchAbilities.None,Mode="chain",Chain="R:1-3"} };
         var job=Job(); job.Validate(); Check(job.Fps==280,"Game-code jobs retain the selected recording FPS.");
+        job.Options.ExperimentalWorkStealing=true;
+        Check(job.Options.Copy().ExperimentalWorkStealing,"Experimental scheduling survives detached option copies.");
+        var threaded=JsonConvert.DeserializeObject<SearchJob>(JsonConvert.SerializeObject(job,SearchFiles.Settings),SearchFiles.Settings);
+        Check(threaded.Options.ExperimentalWorkStealing,"Experimental scheduling survives the worker protocol.");
         var archive=Job();archive.Options.Mode="wave";archive.Validate();Check(archive.Options.Mode=="wave","Wave search is a distinct selectable mode.");
         Reject(()=>new SectionSearch().Run(archive,()=>false,null,j=>new Linear(j)),"Archive search must not silently execute beam search.");
         archive.Simulator=SearchJob.Backend;archive.Engine=null;Reject(archive.Validate,"The archive mode needs the verified frame backend.");

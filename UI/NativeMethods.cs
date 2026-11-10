@@ -24,6 +24,13 @@ namespace Igtap.Tas.UI
         [StructLayout(LayoutKind.Sequential)] internal struct Scroll { public uint Size, Mask; public int Min, Max; public uint Page; public int Position, Track; }
         [StructLayout(LayoutKind.Sequential)] internal struct DrawItem { public uint Type, Id, Item, Action, State; public IntPtr Window, Dc; public Rect Rect; public UIntPtr Data; }
         [DllImport("gdi32.dll")] internal static extern bool RoundRect(IntPtr dc, int left, int top, int right, int bottom, int ellipseWidth, int ellipseHeight);
+        [DllImport("gdi32.dll")] internal static extern IntPtr CreatePen(int style, int width, uint color);
+        [DllImport("gdi32.dll")] internal static extern bool MoveToEx(IntPtr dc, int x, int y, IntPtr previous);
+        [DllImport("gdi32.dll")] internal static extern bool LineTo(IntPtr dc, int x, int y);
+        [DllImport("gdi32.dll")] internal static extern bool Ellipse(IntPtr dc, int left, int top, int right, int bottom);
+        [DllImport("gdi32.dll")] internal static extern int SaveDC(IntPtr dc);
+        [DllImport("gdi32.dll")] internal static extern bool RestoreDC(IntPtr dc, int saved);
+        [DllImport("gdi32.dll")] internal static extern int IntersectClipRect(IntPtr dc, int left, int top, int right, int bottom);
         [DllImport("gdi32.dll")] internal static extern IntPtr GetStockObject(int index);
         [DllImport("user32.dll")] internal static extern bool DrawFocusRect(IntPtr dc, ref Rect rect);
         [DllImport("dwmapi.dll")] internal static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
@@ -33,6 +40,7 @@ namespace Igtap.Tas.UI
         [DllImport("user32.dll")] internal static extern int FillRect(IntPtr dc, ref Rect rect, IntPtr brush);
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] internal static extern int DrawText(IntPtr dc, string text, int count, ref Rect rect, uint format);
         [DllImport("user32.dll")] internal static extern IntPtr SetCapture(IntPtr hwnd);
+        [DllImport("user32.dll")] internal static extern IntPtr GetCapture();
         [DllImport("user32.dll")] internal static extern bool ReleaseCapture();
         [DllImport("user32.dll")] internal static extern IntPtr SetFocus(IntPtr hwnd);
         [DllImport("user32.dll")] internal static extern short GetKeyState(int key);

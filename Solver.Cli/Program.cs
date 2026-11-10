@@ -23,8 +23,10 @@ internal static class Program
                     if (File.Exists(Path.Combine(directory, "cancel"))) Interlocked.Exchange(ref cancelled, 1);
                 return Volatile.Read(ref cancelled) != 0;
             }
-            void Progress(SearchResult report) => SearchFiles.Write(Path.Combine(directory, "progress.json"), report);
-            var result = job.Options.Mode == "chain" ? new ChainSearch().Run(job, Cancel, Progress) : new SectionSearch().Run(job, Cancel, Progress);
+            void Progress(SearchResult report) => SearchFiles.WriteProgress(Path.Combine(directory, "progress.json"), report);
+            SearchResult Algorithm(SearchJob j,Func<bool> stop,Action<SearchResult> report,Func<SearchJob,ISearchSimulation> create)=>
+                j.Options.Mode=="chain"?new ChainSearch().Run(j,stop,report,create):new SectionSearch().Run(j,stop,report,create);
+            var result=CheckpointSearch.Run(job,Cancel,Progress,j=>new StaticPlatformSimulation(j),Algorithm);
             SearchFiles.Write(Path.Combine(directory, "result.json"), result);
             return 0;
         }

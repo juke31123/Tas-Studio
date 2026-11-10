@@ -27,11 +27,6 @@ internal static class SearchTests
             bad = FlatJob(); bad.Options.Workers = 0; Reject(bad.Validate, "Zero workers");
             bad = FlatJob(); bad.Options.GlitchPolicy = "all"; Reject(bad.Validate, "Unsupported glitch simulation");
             bad = FlatJob(); bad.Geometry[0].MinX = float.NegativeInfinity; Reject(bad.Validate, "Bad geometry");
-            var bindings = new GoalCameraBindings();
-            Check(bindings.Up == "UpArrow" && GoalCameraBindings.VirtualKey(bindings.Left) == 37, "Goal camera defaults to arrows");
-            bindings.Assign(0, "W"); Reject(() => bindings.Assign(1, "W"), "Camera duplicate binding");
-            bindings.Save(Path.Combine(path, "camera.json"));
-            Check(GoalCameraBindings.Load(Path.Combine(path, "camera.json")).Up == "W", "Camera rebindings persist");
             var simulator = new StaticPlatformSimulation(job); var snapshot = simulator.State.Copy();
             for (int i = 0; i < 8; i++) Check(simulator.Step(new FrameInput { X = 1 }, SearchAbilities.None, out _), "Flat static rollout advances");
             var endpoint = simulator.State.Copy(); simulator.Restore(snapshot);
@@ -101,12 +96,25 @@ internal static class SearchTests
             var loop=new object[1];loop[0]=loop;
             Reject(()=>SearchFiles.Write(jobPath,loop),"Serialization errors abort atomic streaming export");
             Check(File.ReadAllText(jobPath)==bytes && !File.Exists(jobPath+".tmp"),"Failed streaming export preserves the old file and removes the temporary file.");
+            var progress=new SearchResult {BestFrames=2,Inputs=new[]{new FrameInput{X=1}},Path=new[]{new MotionVector(1,2)}};
+            string progressPath=Path.Combine(path,"progress.json");SearchFiles.WriteProgress(progressPath,progress);
+            var compact=SearchFiles.Read<SearchResult>(progressPath);
+            Check(compact.BestFrames==2 && compact.Inputs.Length==0 && compact.Path.Length==0,"Live progress retains metrics without repeatedly serializing the candidate.");
+            Check(progress.Inputs.Length==1 && progress.Path.Length==1,"Compact progress never mutates the solver's candidate.");
+            progress.Finished=true;SearchFiles.WriteProgress(progressPath,progress);
+            Check(SearchFiles.Read<SearchResult>(progressPath).Inputs.Length==1,"Finished progress retains a complete fallback candidate.");
+            Check(SearchFiles.TryReadProgress(progressPath,out var live) && live.Finished,"A complete progress report is readable.");
+            File.WriteAllText(progressPath,"{unfinished");
+            Check(!SearchFiles.TryReadProgress(progressPath,out _),"A temporarily unreadable progress report does not cancel live search.");
+            Reject(()=>SearchFiles.Read<SearchResult>(progressPath),"Final result parsing remains strict.");
+            File.Delete(progressPath);
+            Check(!SearchFiles.TryReadProgress(progressPath,out _),"A progress replacement race retains the previous metrics.");
             var movie = new Movie { BootstrapVersion = 4, Frames = Enumerable.Range(0, 5).Select(i => new MovieFrame { Input = new FrameInput { X = i / 5f } }).ToList() };
             string prefix = SearchFiles.PrefixHash(movie, 2); movie.Frames[4].Input.X = -1;
             Check(prefix == SearchFiles.PrefixHash(movie, 2), "Suffix edits do not change prefix fingerprint");
             movie.Frames[0].Input.X = -.5f;
             Check(prefix != SearchFiles.PrefixHash(movie, 2), "Executed-prefix edits invalidate search snapshot fingerprint");
-            Console.WriteLine("PASS: " + count + " external search, simulation boundaries, snapshots, parallelism, cancellation and camera settings checks (experimental static model).");
+            Console.WriteLine("PASS: " + count + " external search, simulation boundaries, snapshots, parallelism, and cancellation checks (experimental static model).");
         }
         finally { if (Directory.Exists(path)) Directory.Delete(path, true); }
     }

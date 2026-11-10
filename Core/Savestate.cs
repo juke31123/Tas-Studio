@@ -89,7 +89,8 @@ namespace Igtap.Tas.Core
     {
         private const string Extension = ".state.json";
         private static readonly JsonSerializerSettings Settings = new JsonSerializerSettings {
-            TypeNameHandling = TypeNameHandling.None, MissingMemberHandling = MissingMemberHandling.Error, MaxDepth = 32
+            TypeNameHandling = TypeNameHandling.None, MissingMemberHandling = MissingMemberHandling.Error, MaxDepth = 32,
+            DateParseHandling=DateParseHandling.None,Converters={new MovieJson()}
         };
         public string DirectoryPath { get; }
         public SavestateStore(string directory) { DirectoryPath = Path.GetFullPath(directory); Directory.CreateDirectory(DirectoryPath); }
@@ -121,7 +122,8 @@ namespace Igtap.Tas.Core
                 using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                 using (var writer = new StreamWriter(stream, new UTF8Encoding(false)))
                 {
-                    writer.Write(JsonConvert.SerializeObject(state, Formatting.Indented, Settings)); writer.Flush(); stream.Flush(true);
+                    using(var json=new JsonTextWriter(writer){Formatting=Formatting.Indented,CloseOutput=false})JsonSerializer.Create(Settings).Serialize(json,state);
+                    writer.Flush(); stream.Flush(true);
                     if (stream.Length > 256L * 1024 * 1024) throw new InvalidOperationException("Savestate exceeds the 256 MiB file limit.");
                 }
                 File.Move(temp, path);
@@ -133,7 +135,9 @@ namespace Igtap.Tas.Core
         {
             string path = PathFor(name);
             if (new FileInfo(path).Length > 256L * 1024 * 1024) throw new InvalidOperationException("Savestate exceeds the 256 MiB import limit.");
-            var state = JsonConvert.DeserializeObject<Savestate>(File.ReadAllText(path), Settings) ?? throw new InvalidOperationException("Savestate is null.");
+            using var file=File.OpenRead(path);using var text=new StreamReader(file);using var json=new JsonTextReader(text);
+            var serializer=JsonSerializer.Create(Settings);serializer.CheckAdditionalContent=true;
+            var state=serializer.Deserialize<Savestate>(json)??throw new InvalidOperationException("Savestate is null.");
             state.Validate(); return state;
         }
     }

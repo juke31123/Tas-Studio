@@ -24,9 +24,11 @@ namespace IGTAP.EngineSim
         private int _studioSearchHorizon, _studioSearchFirst, _studioSearchFingerprint;
         private float _studioSearchX, _studioSearchY, _studioSearchRadius;
         private bool _studioSearchExhausted;
+        private Func<int,float> _studioSearchRank;
 
-        public void ConfigureStudioOfflineSearch(Func<StudioInput, bool> advance, Func<bool> stop, int horizon, float x, float y, float radius)
+        public void ConfigureStudioOfflineSearch(Func<StudioInput, bool> advance, Func<bool> stop, int horizon, float x, float y, float radius,Func<int,float> rank=null)
         {
+            _studioSearchRank=rank;
             _studioSearchAdvance = advance; _studioSearchStop = stop; _studioSearchHorizon = horizon;
             _studioSearchX = x; _studioSearchY = y; _studioSearchRadius = radius;
             _studioSearchFirst = _studioFrame; _studioSearchRoot = CaptureStudioState();
@@ -64,11 +66,11 @@ namespace IGTAP.EngineSim
                 stepped++; onStep?.Invoke(i + 1);
                 var body = Physics.PlayerBody(); var origin = WorldOriginInScene;
                 double dx = body.px - origin.x - _studioSearchX, dy = body.py - origin.y - _studioSearchY;
-                if (dx * dx + dy * dy <= _studioSearchRadius * _studioSearchRadius) { finish = i; break; }
+                if (StudioHasCheckpoints?StudioCheckpointsComplete:dx * dx + dy * dy <= _studioSearchRadius * _studioSearchRadius) { finish = i; break; }
                 _studioSearchExhausted = i + 1 >= inputs.Count;
                 if (afterTick?.Invoke(i + 1) == false) break;
             }
-            return new RunResult { Finished = finish >= 0, FinishTick = finish, Time = StudioSearchElapsed(null),
+            return new RunResult { Finished = finish >= 0, FinishTick = finish, Time = finish>=0&&_studioSearchRank!=null?_studioSearchRank(_studioFrame-_studioSearchFirst):StudioSearchElapsed(null),
                 PhysicsTicks = _studioPus - _studioSearchRoot.Pus, Stepped = stepped, EndReason = finish >= 0 ? null : end };
         }
         public static StudioInput StudioSearchInput(InputTick input, StudioInput previous)

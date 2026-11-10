@@ -36,6 +36,8 @@ if ($LASTEXITCODE -ne 0) { throw 'Solver restore failed.' }
 dotnet build $solverProject --no-restore -c Release "-p:ManagedDir=$ManagedDir"
 if ($LASTEXITCODE -ne 0) { throw 'Solver build failed.' }
 $manifest = Get-Content -LiteralPath (Join-Path $root 'mod.json') -Raw | ConvertFrom-Json
+$builtVersion = [Reflection.AssemblyName]::GetAssemblyName((Join-Path $root 'bin\Release\netstandard2.1\TasStudio.dll')).Version.ToString(3)
+if ($builtVersion -ne $manifest.version) { throw "DLL version $builtVersion differs from mod.json version $($manifest.version)." }
 $output = Join-Path $root 'artifacts\Tas.Studio'
 New-Item -ItemType Directory -Force $output | Out-Null
 $packageFiles = @('TasStudio.dll', '0Harmony.dll', 'mod.json', 'INSTALL.md', 'Harmony-LICENSE.txt')
@@ -76,7 +78,7 @@ Get-ChildItem -LiteralPath (Join-Path $root 'docs') -Filter '*.md' | ForEach-Obj
 # a release. One Tas.Studio directory is the archive's only top-level folder.
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-$zip = Join-Path $root ('artifacts\Tas-Studio-' + $manifest.version + '-clean.zip')
+$zip = Join-Path $root ('artifacts\Tas-Studio-' + $manifest.version + '.zip')
 $zipStream = [IO.File]::Open($zip, [IO.FileMode]::Create, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
 $zipArchive = New-Object IO.Compression.ZipArchive($zipStream, [IO.Compression.ZipArchiveMode]::Create, $false)
 try {

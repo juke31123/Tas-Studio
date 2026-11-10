@@ -36,13 +36,16 @@ internal static class EngineSearchRunner
                 if(now>=due && Interlocked.CompareExchange(ref nextPoll,now+Stopwatch.Frequency/10,due)==due && File.Exists(Path.Combine(directory,"cancel"))) Interlocked.Exchange(ref cancelled,1);
                 return Volatile.Read(ref cancelled)!=0;
             }
-            void Progress(SearchResult result) => SearchFiles.Write(Path.Combine(directory,"progress.json"),result);
+            void Progress(SearchResult result) => SearchFiles.WriteProgress(Path.Combine(directory,"progress.json"),result);
             var workers=new System.Collections.Concurrent.ConcurrentDictionary<int,int>();
             Func<SearchJob,ISearchSimulation> factory=j => {
-                var simulation=new EngineSearchSimulation(j,capture,prefix,Cancel);
+                var simulation=new EngineSearchSimulation(j,capture,prefix,()=>Cancel()||j.Objective?.Stop?.Invoke()==true);
+                if(j.Start.BackendState!=null)simulation.Restore(j.Start);
                 workers.TryAdd(Thread.CurrentThread.ManagedThreadId,prefix.Inputs.Count); return simulation;
             };
-            var result=job.Options.Mode=="wave" ? WaveSearch.Run(job,Cancel,Progress,factory) : job.Options.Mode=="chain" ? new ChainSearch().Run(job,Cancel,Progress,factory) : new SectionSearch().Run(job,Cancel,Progress,factory);
+            SearchResult Algorithm(SearchJob j,Func<bool> stop,Action<SearchResult> report,Func<SearchJob,ISearchSimulation> create)=>
+                j.Options.Mode=="wave"?WaveSearch.Run(j,stop,report,create):j.Options.Mode=="chain"?new ChainSearch().Run(j,stop,report,create):new SectionSearch().Run(j,stop,report,create);
+            var result=CheckpointSearch.Run(job,Cancel,Progress,factory,Algorithm);
             SearchFiles.Write(Path.Combine(directory,"engine-search-validation.json"),new {job.Fps,PrefixFrames=prefix.Inputs.Count,
                 VerifiedWorkerThreads=workers.Keys.OrderBy(i => i).ToArray(),NativePrefixVerified=workers.Count>0,NativeCandidateVerificationRequired=true});
             SearchFiles.Write(Path.Combine(directory,"result.json"),result); return 0;

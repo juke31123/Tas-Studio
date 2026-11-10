@@ -37,12 +37,14 @@ $escapedCore = [System.Security.SecurityElement]::Escape((Join-Path $PSScriptRoo
   </ItemGroup>
   <ItemGroup Condition="'`$(AssemblyName)' == 'IGTAP.EngineSim.Runtime'">
     <Compile Include="$escapedCompatibility\FrameRuntime.cs" />
+    <Compile Include="$escapedCompatibility\SchedulerChecks.cs" />
     <Compile Include="$escapedCompatibility\FrameMovers.cs" />
     <Compile Include="$escapedCompatibility\FrameAnimation.cs" />
     <Compile Include="$escapedCompatibility\FramePhysics.cs" />
     <Compile Include="$escapedCompatibility\FrameEconomy.cs" />
     <Compile Include="$escapedCompatibility\FrameCoverage.cs" />
     <Compile Include="$escapedCompatibility\FrameSearch.cs" />
+    <Compile Include="$escapedCompatibility\FrameCheckpoints.cs" />
     <Compile Include="$escapedCore\Simulation\NativeFrameClock.cs" />
     <Compile Include="$escapedCore\Simulation\AnimationTimeline.cs" />
     <Compile Include="$escapedCore\Simulation\CoroutineSnapshot.cs" />
@@ -163,6 +165,9 @@ $tree=$tree.Substring(0,$treeStart)+"`t`t`tif (treeAabb.Contains(aabb)) return f
 $shopPath = Join-Path $cache 'enginesim\Runtime\Shop.cs'
 $shop = [IO.File]::ReadAllText($shopPath)
 if (!$shop.Contains('public sealed class Shop')) { throw 'Unexpected reference Shop declaration.' }
+$syncLocal = 'bool unlocksChange = false;'
+if (!$shop.Contains($syncLocal)) { throw 'Unexpected purchase synchronization boundary.' }
+$shop=$shop.Replace($syncLocal,'if (_sim.Physics.StudioFrames) StudioSyncLocals(); '+$syncLocal)
 [IO.File]::WriteAllText($shopPath, $shop.Replace('public sealed class Shop', 'public sealed partial class Shop'))
 # Keep the original OfflineSolver's archive/mutations/splicing and workers.
 # Its execution boundary uses movie frames and our verified scheduler instead
@@ -180,6 +185,9 @@ $solverChanges = [ordered]@{
     '_sim.Elapsed(' = '_sim.StudioSearchElapsed('
     '_sim.Fingerprint()' = '_sim.StudioSearchFingerprint()'
     '_sim.Engine.InputsExhausted' = '_sim.StudioSearchInputsExhausted'
+    '_goalMode = sim.Goals != null;' = '_goalMode = sim.Goals != null && !sim.StudioHasCheckpoints;'
+    'List<InputTick> inputs = _runInputs;' = 'if (_sim.StudioHasCheckpoints) _waypoints = _sim.StudioCheckpoint; List<InputTick> inputs = _runInputs;'
+    'if (path.Step(_sim.PlayerStepFrom, p, _sim.Progress, ref _waypoints, !path.OnCourseOnly || _sim.TimingCourse() != null)) _avoided = true;' = 'if (_sim.StudioHasCheckpoints) _waypoints = _sim.StudioCheckpoint; else if (path.Step(_sim.PlayerStepFrom, p, _sim.Progress, ref _waypoints, !path.OnCourseOnly || _sim.TimingCourse() != null)) _avoided = true;'
     'var worker = new Worker(this, index, _createSimulation(), seed, seeds, _partitions[index], plateau);' = 'try { var worker = new Worker(this, index, _createSimulation(), seed, seeds, _partitions[index], plateau);'
     'worker.Loop();' = 'worker.Loop(); } catch (Exception error) { StudioErrors.Enqueue(error); Stop(); }'
 }

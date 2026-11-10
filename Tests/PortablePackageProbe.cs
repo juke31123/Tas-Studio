@@ -48,15 +48,20 @@ internal static class PortablePackageProbe
             foreach (string name in new[] { "native.trace.json", "start.json", "world.json", "animation.json" })
                 File.Copy(Path.Combine(source, "engine", name), Path.Combine(copy, "engine", name));
             var job = SearchFiles.Read<SearchJob>(Path.Combine(source, "job.json"));
-            job.Options.Mode = "wave"; job.Options.Seconds = 5; job.Options.Workers = 2;
+            job.Options.Mode = "wave"; job.Options.Seconds = job.Options.Checkpoints.Length>0?20:5; job.Options.Workers = 2;
             SearchFiles.Write(Path.Combine(copy, "job.json"), job);
             Run(executable, "solve \"" + Path.Combine(copy, "job.json") + "\"", host);
             var result = SearchFiles.Read<SearchResult>(Path.Combine(copy, "result.json"));
             if (!result.Finished || result.Simulator != EngineSearchSpec.Backend || result.Inputs.Length == 0)
                 throw new Exception("Isolated search produced no candidate: " + result.Status + " / " + result.Message);
+            if(job.Options.Checkpoints.Length>0 && result.CheckpointsReached!=job.Options.Checkpoints.Length)
+                throw new Exception("Isolated search did not complete the ordered route.");
+            if(result.Inputs.Length>job.Options.FrameLimit||job.Options.SecondsPerCheckpoint&&result.CommittedFrames!=result.Inputs.Length)
+                throw new Exception("Isolated search did not respect the section frame limit or checkpoint commits.");
             if (EngineHostPackage.HashFile(game) != gameHash) throw new Exception("Native game assembly changed.");
             SearchFiles.Write(Path.Combine(data, "portable-validation.json"), new { Passed = true, Algorithm = result.Algorithm,
-                CandidateFrames = result.Inputs.Length, result.Evaluated, result.SimulatedFrames, result.Pus, result.Seconds, NativeGameUnchanged = true,
+                CandidateFrames = result.Inputs.Length, result.Evaluated, result.SimulatedFrames, result.Pus, result.Seconds,result.CheckpointsReached,result.CheckpointCount,
+                job.Options.UseFrameTarget,job.Options.FrameAllowance,job.Options.SecondsPerCheckpoint,result.LookaheadSimulatedFrames,NativeGameUnchanged = true,
                 Scope = "Portable setup, cache repair and external search. Does not replace in-game candidate verification.", SearchDirectory = copy });
             Console.WriteLine("PASS: isolated " + result.Algorithm + " search found " + result.Inputs.Length + " input frames; native files unchanged.");
             return 0;

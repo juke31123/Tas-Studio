@@ -23,6 +23,16 @@ namespace Igtap.Tas.Core
         private int _pendingInterval = -1;
         private int _count, _write, _gcStart;
         private bool _open;
+        private double _autoSaveAt=double.PositiveInfinity;
+        // Coalesce repeated frame steps into one idle write. Explicit export
+        // and session teardown still save immediately through Save().
+        public bool AutoSaveDue(double now,bool advancing,bool paused)
+        {
+            if(advancing){_autoSaveAt=paused?now+.5:double.PositiveInfinity;return false;}
+            if(!paused){_autoSaveAt=double.PositiveInfinity;return false;}
+            if(now<_autoSaveAt)return false;
+            _autoSaveAt=double.PositiveInfinity;return true;
+        }
         public int Samples => _count;
         public string Error { get; private set; } = "";
         public void Begin(bool advancing)
@@ -93,6 +103,7 @@ namespace Igtap.Tas.Core
         public void Reset()
         {
             _count = _write = 0; _pendingInterval = -1; _open = false; Error = "";
+            _autoSaveAt=double.PositiveInfinity;
             Array.Clear(_operationCount, 0, 8); Array.Clear(_operationTotal, 0, 8); Array.Clear(_operationMax, 0, 8);
         }
     }

@@ -14,7 +14,7 @@ namespace Igtap.Tas
     {
         public string Id => "Tas.Studio";
         public string DisplayName => "Tas Studio";
-        public Version Version => new Version(0, 12, 0);
+        public Version Version => StudioVersion.Number;
         private TasSession _session;
         private GamePatches _patches;
         private LoopHooks _loop;
@@ -111,7 +111,7 @@ namespace Igtap.Tas
             finally
             {
                 _session.Profiler.End(_session.LastFramePus);
-                if (_profileAdvancing && _session.Frozen) _session.SaveProfile();
+                if (_session.Profiler.AutoSaveDue(Time.realtimeSinceStartupAsDouble,_profileAdvancing,_session.Frozen)) _session.SaveProfile();
             }
         }
         private void DisableRuntime()

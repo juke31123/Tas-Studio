@@ -1,4 +1,79 @@
-# Bruteforce window (0.12.2 experimental)
+# Bruteforce window (0.17.0)
+
+## Numbered checkpoints
+
+Open **Checkpoint map...** in the Bruteforce window while paused. **Refresh map**
+captures the currently loaded collider outlines; this is a frozen planning map,
+not a prediction of future moving objects. Blue outlines are solids, red are
+hazards and amber marks other interactions. The player is the cross.
+
+Click empty map space to append a checkpoint; the list number is the required
+visit order. Drag an existing numbered point to move it. Release inside the map
+to apply the change; Escape or release outside the map cancels it. Only the final
+drop is sent to the game thread. Middle-drag pans (right-drag also works), and
+the wheel zooms. **Fit goals** fits the player and route;
+**Center player** centers the last captured player position. Select a list entry,
+edit X/Y/radius and click **Apply point**. **Move up/down** changes its number;
+**Delete point** removes it. Radii accept decimal points or commas, from 1 to
+1000 world units. Up to 64 points are supported.
+
+**Add current player** captures the actual paused position. All checkpoint editing
+is in this map window; free-camera and in-game placement controls have been removed.
+Placement does not move the player or record input. The final checkpoint is the
+finish. **Clear route** removes the points; place a new finish before starting
+another search.
+
+All three search modes carry the next required checkpoint in each trajectory,
+branch snapshot and archive state. Touching point 3 before point 2 does not count;
+it must be visited again after point 2. Overlapping consecutive circles may count
+on the same movie-frame boundary. By default, a search optimizes the whole route
+in one time budget. Optional per-checkpoint budgets commit one arrival at a time,
+retaining its velocity, input history, resources and full simulated world state.
+Progress reports the furthest ordered checkpoint count.
+This remains a budgeted search for the best candidate found, not a proof of the
+globally fastest route. Native verification checks each movie-frame endpoint,
+requires every checkpoint in order and a living player inside the final circle.
+
+## Frame targets, checkpoint budgets and lookahead
+
+- **Frame target**, beside **Maximum frames**, treats that number as a target and
+  enables **Extra frames allowed** (default **1000**). The hard ceiling is target
+  plus allowance, across the complete section. Shorter valid routes remain better;
+  reaching the target is not a requirement. With the toggle off, the original
+  maximum is the hard limit. The combined ceiling is at most 20,000 frames.
+- **Per checkpoint**, beside search seconds, gives each remaining checkpoint that
+  many seconds. Four pending checkpoints at 60 seconds receive up to 240 seconds
+  of search time, plus setup and selected-route reconstruction. At each deadline,
+  the best arrival is chosen and the next stage starts with a fresh timer. If a
+  stage finds no arrival, the search ends without an acceptable partial candidate.
+  Cancellation leaves the source movie unchanged. Already-reached/overlapping
+  checkpoints need no extra stage. Finite input-chain enumeration can finish early
+  once every combination has been tried; the chain is applied anew at each stage.
+- **Lookahead frames** is available only with per-checkpoint time enabled. Set X
+  to test up to X more frames after each arrival toward the next circle. Workers
+  compare holding current controls, steering toward the next point, and coasting.
+  The score combines arrival frames, preview frames and remaining distance
+  converted into an estimated travel time. This can prefer a slightly later
+  arrival with better momentum. Preview frames count as search work, respect
+  ability restrictions and the remaining hard frame ceiling, and are restored
+  afterward: they do not become part of the selected segment. The last checkpoint
+  uses arrival time alone. This is a heuristic estimate, not a guarantee of the
+  best possible continuation. It costs extra simulation work within each budget.
+
+These controls work with Beam, Wave and exhaustive input-chain search. Progress
+includes the current checkpoint, its timer, committed frames and lookahead work.
+Whole-route search remains available by leaving **Per checkpoint** off.
+
+## CashPerLoop purchases
+
+Local CashPerLoop single purchases are enabled in normal play with new native
+purchase witnesses. Currency, local upgrade levels, box count/cost/cooldown and
+active/cap state participate in validation. The game-code backend keeps its
+economy model and original local-upgrade game objects synchronized after buying
+and restoring a branch. Buy-max, Vman purchases, global CashPerLoop and other
+upgrade types still stop unsupported rollouts. A blocked rollout is not an actual
+failed in-game purchase; its reason appears in the search report. Older captures
+without purchase witnesses need recapturing through the updated mod.
 
 Open **Studio > Run > Open Bruteforce window** during a paused recording or replay.
 The controls run in a third native window inside IGTAP. Search evaluation runs
@@ -48,30 +123,23 @@ The exhaustive chain mode remains useful for timing a specific input sequence.
 Beam mode remains available for controlled comparisons and independent
 development. Selecting the archive option never silently falls back to beam.
 
-1. Record or replay to the destination. Pause. Opening Bruteforce initially uses the
-   player's current world position as its goal. **Goal = current player position**
-   refreshes it. X/Y and the goal radius can also be entered directly; decimal point
-   and comma are supported.
+1. Pause the recording or replay. Open **Checkpoint map...** and place the finish,
+   optionally preceded by intermediate checkpoints. The map can also add the
+   current player position. Edit each radius in the map; decimal points and commas
+   are supported.
 2. Enter **Start frame**, an already executed frame at or before the TAS cursor.
    **Use TAS cursor** copies the current frame. Set the maximum search frames, time
    budget, workers and allowed abilities.
-3. Optionally select **Place goal with free camera**. Focus the game and move the
-   camera with the arrow keys, zoom with the mouse wheel, then click the destination.
-   Escape cancels. The player/body never moves, and camera navigation is not recorded.
-   The original camera position, rotation and zoom are restored when placement ends.
-   Closing the window, stopping or unloading also ends placement.
-4. Each camera key can be rebound using the four key buttons at the bottom of the
-   Bruteforce window. Click one, then press a different arrow, letter, digit or
-   function key. Escape cancels rebinding. Settings persist in `data/goal-camera.json`.
-   Scroll the window when the lower controls do not fit the display.
-5. Click **Start search**. If necessary, the mod reconstructs the selected start
+3. Optionally enable a frame target/allowance, per-checkpoint time and lookahead.
+   Scroll the window when its lower controls do not fit the display.
+4. Click **Start search**. If necessary, the mod reconstructs the selected start
    using the original movie prefix. The game then stays paused while the external
    worker searches. Existing future inputs remain available as a seed and backup.
-6. A candidate is **unverified**. Click **Verify candidate in game** to replay the
+5. A candidate is **unverified**. Click **Verify candidate in game** to replay the
    original prefix and candidate at the movie FPS. The native player must reach
    the goal alive; observed resource consumption also rejects disabled air-jump,
    wall-jump or dash use. The temporary verification movie cannot overwrite the TAS.
-7. **Accept result as draft** stages the replacement from Start frame onward.
+6. **Accept result as draft** stages the replacement from Start frame onward.
    **Save edits** in the Frame Editor applies it, removes the old suffix, rebuilds
    the changed recording and saves it. Undo/Redo and draft recovery remain available.
    **Cancel / discard preview** restores the original inputs and reconstructs their
@@ -79,16 +147,59 @@ development. Selecting the archive option never silently falls back to beam.
 
 The ability boxes restrict use; they do not grant upgrades or change the recording's
 start setup. Dash count and extra-jump count come from the actual selected start.
-There is no player noclip/teleport mode: goal placement uses the detached camera.
-Transport is blocked during goal placement, preparation and native verification.
+The checkpoint map never moves the game camera or player. Preparation and native
+verification own the TAS transport until they finish or are cancelled.
 
 ## Search modes
 
-**Heuristic beam search** explores allowed direction/button combinations in parallel
-and keeps a bounded set of promising states. Input hold is its action block length;
-use 1 for changes on every frame. A larger value searches longer actions more cheaply
-but can miss narrow timing windows. The result is best found within the budget,
-not a globally optimal route. Worker count is configurable from 1 to 32.
+**Heuristic beam search** keeps a bounded archive of reachable states and expands
+small groups with different priorities: goal progress, less explored cells,
+velocity and early arrival. Cells retain several contact/resource/momentum and
+timing variants; finer cells near the goal protect small goal radii. These labels
+are heuristic diversity, never an exact-state equivalence or convergence claim.
+
+Input holds mix single frames, short powers of two and longer bursts. **Input hold
+hint** adds a useful duration; it does not constrain every edit to that spacing.
+The final movie still contains ordinary frame rows, including changes between PUs.
+Goals are checked after every simulated frame, not only at hold endpoints.
+
+The existing suffix seeds the archive and a possible incumbent. Search continues
+with input changes, cuts, inserts, button/run retiming and splice attempts. Every
+changed join is simulated from its real preceding state; reaching a nearby map
+cell does not establish matching hidden state. No unchanged old suffix is required.
+
+Each dedicated worker owns its simulator and snapshot tokens. Native parent
+snapshots are reused across siblings, with a 64 MiB allocation-based target for
+retained snapshots per worker, excluding the mandatory root, active temporary
+tokens, worlds and runtime. Cache misses replay immutable input histories.
+Progress includes replay frames and estimated retained cache bytes. Winning
+preview arrays are built when a result changes, without progress-triggered replay.
+
+The result is best found, not exhaustive or globally optimal. A finite archive or
+refinement neighbourhood may be exhausted before the time limit. Workers remain
+configurable from 1 to 32; actual speed and memory depend on the captured world.
+
+Beam tries goal-facing actions earlier while retaining the other directions. Its
+refiner also tests systematic coarse-to-fine cuts and shifts input-run boundaries.
+These are search-order heuristics, not new movement rules or a shortest-path proof.
+
+**Experimental work stealing (Beam only)** is off by default. Normal affinity
+assigns parent batches to their existing worlds. With stealing enabled, an idle
+worker can take an unclaimed task from another queue and reconstruct that task's
+immutable input history in its own world. Native snapshot tokens never cross
+workers. Progress reports the scheduling mode, completed tasks and stolen tasks.
+Wave already uses its upstream multithreaded solver; this checkbox affects Beam.
+More workers can spend more time rebuilding histories and initializing worlds.
+Start with two; compare on the section before increasing the count.
+
+Developers can compare affinity/stealing without starting the game:
+
+```powershell
+.\Compare-Search.ps1 -JobPath 'C:\captures\job.json' -Seconds 5 -Workers 1,2,4 -Repeats 2
+```
+
+The script copies captured inputs into new artifact folders and leaves the source
+job untouched. Its candidates remain unverified until replayed in the game.
 
 **Exhaustive input chain** enumerates duration choices for a bounded action sequence:
 
@@ -148,9 +259,10 @@ native verification. Test30 zipper rides now pass full state comparison, branch
 restores, two-worker checks and native chain/beam candidate verification. The
 tested `zipMover` type is enabled. Spring contacts now require spring-state
 witnesses, including cooldown; the supplied spring fixture is documented in
-[GLITCH-VALIDATION.md](GLITCH-VALIDATION.md). Generic movers, purchases, teleporters
+[GLITCH-VALIDATION.md](GLITCH-VALIDATION.md). Generic movers, other purchases, teleporters
 and unrepresented geometry remain guarded. Already-active contacts are checked
-when search starts. Every new search export includes mover and spring state.
+when search starts. Every new search export includes mover, spring and local
+CashPerLoop purchase state.
 It is still experimental and does not certify all game
 behaviour or glitches. An invalid registration or rejected prefix reports an
 error rather than silently substituting the approximate model.

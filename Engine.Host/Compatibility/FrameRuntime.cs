@@ -36,6 +36,7 @@ namespace IGTAP.EngineSim
         internal float AnimationSpeed;
         internal object[][][] CoursePaths;
         internal bool Interpolate;
+        internal int Checkpoint;
         internal MoverFrameState[] Movers;
     }
     public sealed partial class Simulation
@@ -49,6 +50,7 @@ namespace IGTAP.EngineSim
         private NativeFrameClock _studioNativeClock;
         private Action _studioMenuUpdate;
         private bool _studioInterpolate;
+        private Rigidbody2D _studioRenderBody;
         public double StudioNativeTime => _studioNativeClock.Time;
         public double StudioNativeFixedTime => _studioNativeClock.FixedTime;
         public long StudioCaptureTicks => _studioNativeClock.CaptureTicks;
@@ -77,6 +79,7 @@ namespace IGTAP.EngineSim
             _stepFrom = AtLoadedStart ? _loadedStepFrom : BodyPosition();
             _stepTo = AtLoadedStart ? _loadedStepTo : BodyPosition();
             _studioInterpolate = true;
+            _studioRenderBody=Player.GetComponent<Rigidbody2D>();
             StudioFrameControls.Reset();
             StudioFrameControls.Now = (float)_studioNativeClock.Time; Time.timeScale = _studioScale;
             foreach (var pair in new[] { ("jumpAction", 1), ("jumpAction2", 2), ("dashAction", 4), ("dashAction2", 8), ("resetAction", 16) })
@@ -222,7 +225,7 @@ namespace IGTAP.EngineSim
             ApplyStudioInput(input);
             float alpha = observed == null ? _studioNativeClock.Interpolation : (float)((observed.Time - observed.LastFixedTime) / observed.FixedDelta);
             RenderStudioMovers(alpha);
-            Player.transform.StoreWorldPosition(_studioInterpolate ? new Vector3(Blend(_stepFrom.x, _stepTo.x, alpha), Blend(_stepFrom.y, _stepTo.y, alpha), Blend(_stepFrom.z, _stepTo.z, alpha)) : _stepTo);
+            Player.transform.StoreWorldPosition(_studioInterpolate && Physics.StudioBodyAwake(_studioRenderBody) ? new Vector3(Blend(_stepFrom.x, _stepTo.x, alpha), Blend(_stepFrom.y, _stepTo.y, alpha), Blend(_stepFrom.z, _stepTo.z, alpha)) : _stepTo);
             Touch(Player.pauseMenu); _studioMenuUpdate();
             if (observed != null) StudioSample?.Invoke(pus, "before-input-update");
             _update();
@@ -240,6 +243,7 @@ namespace IGTAP.EngineSim
                 int nextPus = (int)Math.Floor(nextTotal / .02 + 1e-10);
                 _studioNativeClock.Prepare(nextPus, Math.Max(0, nextTotal - nextPus * .02), _studioScale, _studioFps);
             }
+            if(StudioHasCheckpoints)AdvanceStudioCheckpoint();
             StudioSample?.Invoke(pus, "frame-end");
             return pus;
         }
@@ -249,13 +253,14 @@ namespace IGTAP.EngineSim
             Scheduled = _studioScheduler.Capture(), Input = _studioInput, Phase = _studioPhase, Time = _studioTime,
             Scale = _studioScale, Frame = _studioFrame, Pus = _studioPus, NativeClock = _studioNativeClock,
             Animation = _studioAnimation?.State ?? default, AnimationSpeed = Player.animator?.speed ?? 1,
-            Interpolate = _studioInterpolate, Movers = CaptureStudioMovers(),
+            Interpolate = _studioInterpolate, Movers = CaptureStudioMovers(),Checkpoint=_studioCheckpoint,
             CoursePaths = _coursePathLists.Select(paths => paths.Select(path => path.Cast<object>().ToArray()).ToArray()).ToArray() };
         public void RestoreStudioState(StudioSnapshot state)
         {
             if (!ReferenceEquals(state.Owner, this)) throw new InvalidOperationException("Offline snapshots belong to their creating worker.");
             Restore(state.World); _inRun = true; _studioScheduler.Restore(state.Scheduled);
             Shop.StudioSyncCurrencies();
+            Shop.StudioSyncLocals();
             for (int course = 0; course < _coursePathLists.Length; course++)
                 for (int path = 0; path < _coursePathLists[course].Length; path++)
                 {
@@ -266,6 +271,7 @@ namespace IGTAP.EngineSim
             _studioFrame = state.Frame; _studioPus = state.Pus; ApplyStudioInput(state.Input);
             _studioNativeClock = state.NativeClock;
             _studioInterpolate = state.Interpolate;
+            _studioCheckpoint=state.Checkpoint;
             RestoreStudioMovers(state.Movers);
             _studioAnimation?.Restore(state.Animation);
             if (Player.animator != null) Player.animator.speed = state.AnimationSpeed;
@@ -283,6 +289,10 @@ namespace IGTAP.EngineSim
         internal sealed class State { public Pending[] Pending; public Routine[] Routines; public double Now, InvokeAnchor, CoroutineAnchor; public int Frame; public bool FixedPhase; }
         private readonly List<Pending> _pending = new List<Pending>();
         private readonly List<Routine> _routines = new List<Routine>();
+        private readonly Stack<List<Pending>> _pendingScratch = new Stack<List<Pending>>();
+        private readonly Stack<List<Routine>> _routineScratch = new Stack<List<Routine>>();
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<(Type,string),MethodInfo> Methods =
+            new System.Collections.Concurrent.ConcurrentDictionary<(Type,string),MethodInfo>();
         private readonly Action<MonoBehaviour> _touch;
         private static readonly MethodInfo Clone = typeof(object).GetMethod("MemberwiseClone", BindingFlags.Instance | BindingFlags.NonPublic);
         public double Now, InvokeAnchor, CoroutineAnchor; public int Frame;
@@ -317,26 +327,50 @@ namespace IGTAP.EngineSim
         public void Fire(bool resumeSeconds = true, bool fixedOriginsOnly = false)
         {
             if (_pending.Count > 0)
-            foreach (var p in _pending.Where(p => p.Due <= Now + 1e-7 && (!fixedOriginsOnly || p.FixedOrigin)).OrderBy(p => p.Due).ToArray())
             {
-                if (!_pending.Remove(p) || !p.Target) continue;
-                if (p.Repeat >= 0) Invoke(p.Target, p.Method, Math.Max(p.Repeat, .000001f), p.Repeat);
-                _touch(p.Target);
-                var method = p.Target.GetType().GetMethod(p.Method, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, Type.EmptyTypes, null)
-                    ?? throw new MissingMethodException(p.Target.GetType().FullName, p.Method);
-                method.Invoke(p.Target, null);
+                var due = _pendingScratch.Count == 0 ? new List<Pending>() : _pendingScratch.Pop();
+                try
+                {
+                    // Stable insertion order at equal deadlines, just as
+                    // OrderBy. Snapshot eligibility before running callbacks:
+                    // new invokes cannot execute twice in the same phase.
+                    foreach(var pending in _pending)
+                        if(pending.Due <= Now && (!fixedOriginsOnly || pending.FixedOrigin))
+                        {
+                            int index=due.Count;
+                            while(index>0 && due[index-1].Due>pending.Due)index--;
+                            due.Insert(index,pending);
+                        }
+                    foreach(var p in due)
+                    {
+                        if (!_pending.Remove(p) || !p.Target) continue;
+                        if (p.Repeat >= 0) Invoke(p.Target, p.Method, Math.Max(p.Repeat, .000001f), p.Repeat);
+                        _touch(p.Target);
+                        var method = Methods.GetOrAdd((p.Target.GetType(),p.Method),key =>
+                            key.Item1.GetMethod(key.Item2, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, Type.EmptyTypes, null)
+                            ?? throw new MissingMethodException(key.Item1.FullName,key.Item2));
+                        method.Invoke(p.Target, null);
+                    }
+                }
+                finally {due.Clear();_pendingScratch.Push(due);}
             }
             if(resumeSeconds) Resume(Wait.Seconds);
         }
         public void Resume(Wait phase)
         {
             if (_routines.Count == 0) return;
-            foreach (var r in _routines.Where(r => r.Wait == phase && (phase != Wait.Frame || r.Frame < Frame) &&
-                (phase != Wait.Seconds || r.Due <= Now)).ToArray())
+            var due = _routineScratch.Count == 0 ? new List<Routine>() : _routineScratch.Pop();
+            try
             {
-                if (!_routines.Remove(r) || !r.Target || !r.Target.gameObject.activeInHierarchy) continue;
-                _touch(r.Target); if (r.Body.MoveNext()) Park(r, r.Body.Current);
+                foreach(var r in _routines)
+                    if(r.Wait == phase && (phase != Wait.Frame || r.Frame < Frame) && (phase != Wait.Seconds || r.Due <= Now))due.Add(r);
+                foreach(var r in due)
+                {
+                    if (!_routines.Remove(r) || !r.Target || !r.Target.gameObject.activeInHierarchy) continue;
+                    _touch(r.Target); if (r.Body.MoveNext()) Park(r, r.Body.Current);
+                }
             }
+            finally {due.Clear();_routineScratch.Push(due);}
         }
         public State Capture() => new State { Now = Now, InvokeAnchor = InvokeAnchor, CoroutineAnchor = CoroutineAnchor, Frame = Frame, FixedPhase=FixedPhase, Pending = _pending.Select(p => (Pending)Clone.Invoke(p, null)).ToArray(),
             Routines = Copy(_routines.ToArray()) };

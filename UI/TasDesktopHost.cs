@@ -9,7 +9,7 @@ namespace Igtap.Tas.UI
         private TasSession _session;
         private DesktopBridge _desktop;
         private readonly PlayerStatsMonitor _stats = new PlayerStatsMonitor();
-        public void Initialize(TasSession session) { _session = session; _session.Search.GoalPlacement = new GoalPlacement(session); }
+        public void Initialize(TasSession session) { _session = session; }
         public void OpenDesktop(int page = 0)
         {
             if (_desktop == null) _desktop = new DesktopBridge(_session);
@@ -27,12 +27,12 @@ namespace Igtap.Tas.UI
         }
         public void RefreshPlayerStats()
         {
-            using (_session.Profiler.Measure(Core.ProfileSection.PlayerStats)) _stats.Refresh(_session, _desktop?.Connected == true);
-            _desktop?.Publish(_stats);
+            if (_desktop?.SampleDue != true) return;
+            using (_session.Profiler.Measure(Core.ProfileSection.PlayerStats)) _stats.Refresh(_session, true);
+            _desktop.Publish(_stats);
         }
         private void OnDisable()
         {
-            _session?.Search.GoalPlacement?.End();
             _desktop?.Dispose(); _desktop = null;
         }
     }

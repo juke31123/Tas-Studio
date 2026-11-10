@@ -79,6 +79,11 @@ internal static class ReliabilityTests
             var report = File.ReadAllText(profile);
             Check(report.Contains("P99Ms") && report.Contains("PlayerProbe") && report.Contains("Gen0Collections"), "Profiler exports percentiles, sections and GC information");
             profiler.Reset(); Check(profiler.Samples == 0, "New session clears rolling profile");
+            Check(!profiler.AutoSaveDue(0,true,true) && !profiler.AutoSaveDue(.49,false,true),"Frame-step autosaves wait for idle time.");
+            Check(!profiler.AutoSaveDue(.4,true,true) && !profiler.AutoSaveDue(.6,false,true),"Repeated steps coalesce their autosave deadline.");
+            Check(profiler.AutoSaveDue(.91,false,true) && !profiler.AutoSaveDue(1,false,true),"An idle pause produces exactly one automatic write.");
+            profiler.AutoSaveDue(2,true,true);profiler.AutoSaveDue(2.1,true,false);
+            Check(!profiler.AutoSaveDue(3,false,true),"Resuming playback cancels a pending pause write.");
             using (profiler.Measure(ProfileSection.Journal)) { }
             profiler.Save(profile);
             Check(Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(profile))["OperationsIncludingPausedEditor"]["Journal"]["Calls"].Value<long>() == 1,

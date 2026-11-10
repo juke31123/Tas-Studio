@@ -1,4 +1,51 @@
-# Tas Studio 0.12.2
+# Tas Studio 0.17.1
+
+New in 0.17.1: the in-game Mods entry and Tas Studio menu title show the
+installed DLL version. Loader and desktop version labels use the same value.
+Release downloads are named `Tas-Studio-<version>.zip`.
+
+New in 0.17.0: optional frame targets with a configurable allowance (default
+1000 frames), per-checkpoint search time and future-frame lookahead scoring for
+Beam, Wave and chain searches. Set numbered goals in the checkpoint map, drag
+existing points to reposition them, and pan with the middle mouse button.
+Free-camera and in-game goal placement have been removed. See
+`docs/BRUTEFORCE.md` for the budget rules and controls.
+
+New in 0.16.1: inputs are stored as change blocks with `StartFrame` and `Duration`.
+Their durations and per-frame verification count must match the total
+`FrameCount`; gaps, overlaps and missing frames are rejected. Loading expands
+them into the normal editable timeline. Exact presses/releases and per-frame
+hashes remain intact. Existing 0.16.0 compact files still load.
+
+New in 0.16.0: run files use a compact layout, typically about 85% smaller in the
+tested recordings. Inputs, movement hashes, PU timing and world verification are
+preserved. Existing supported format-7 files load and become compact when saved;
+the previous save is retained as `.bak`. The large starting-world check is now
+compressed. No extra dependency is needed. See `docs/FILE-STORAGE.md`.
+
+New in 0.15.0: open **Bruteforce > Checkpoint map...** to place and reorder
+numbered goals. Click the map to add a point, middle-drag to pan and use the wheel
+to zoom. Set each point's coordinates/radius with **Apply point**. Searches must
+visit the numbered circles in order and finish at the last; the default whole-route
+mode optimizes the section together. Native verification checks the same route.
+Clearing the route requires a new finish before starting another search.
+Local CashPerLoop single purchases
+are now supported by the game-code simulator; other unvalidated purchases remain
+guarded. Extract the complete package, including its updated Bruteforce folder.
+
+New in 0.14.0: simulator body-pose and timer corrections, lower observation and
+profile-write overhead, streamed saves, improved Beam refinement, and optional
+**Experimental work stealing (Beam only)**. Affinity remains the default; the
+experimental setting lets idle workers take queued work while retaining their
+own simulators. More workers may increase memory and reconstruction costs.
+
+Since 0.13.0: Beam search adds a bounded archive, mixed input holds, route
+refinement and worker-owned snapshot caches. Single-frame inputs remain available
+at every start; goals are checked after every frame. **Input hold hint** guides
+longer candidates without forcing all edits onto a fixed frame grid. The window
+shows archive cells, refinement/splice attempts, cache hits and restored frames.
+Recordings retain the selected FPS with 50 Hz physics; native verification and
+Save edits still control acceptance.
 
 New in 0.12.2: the search choices are **Beam search**, **Exhaustive input chain**
 and **Wave search**. The label cleanup does not change their search behaviour.
@@ -20,8 +67,7 @@ Recorder gameplay ZIPs can now be imported and replayed with their recorded
 variable timing for simulator validation; see `docs/GLITCH-VALIDATION.md`.
 
 Since 0.11.0: **Run > Open Bruteforce window**. Choose an already executed start
-frame and use the current player position or free camera/mouse to set a goal.
-Camera arrows are rebindable in that window. Choose allowed abilities, workers and
+frame and use the checkpoint map to set goals. Choose allowed abilities, workers and
 a budget, then search externally. Verify a candidate in game, Accept as draft,
 and use Save edits to replace all inputs from the start frame onward.
 The portable game-code host supports tested refill, zipper and spring interactions. Other mechanics

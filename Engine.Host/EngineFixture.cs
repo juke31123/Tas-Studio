@@ -27,6 +27,7 @@ internal static class EngineFixture
         using var world = JsonDocument.Parse(File.ReadAllText(Path.Combine(directory, "world.json")));
         var time = world.RootElement.GetProperty("time");
         simulation.LoadStart(start.RootElement, canonical: false);
+        simulation.ConfigureStudioBodyPoses(world.RootElement);
         simulation.ConfigureStudioFrames(reference.Fps, reference.StartPhase, Input(reference.Previous, default),
             time.GetProperty("nativeTime").GetDouble(), time.GetProperty("nativeFixedTime").GetDouble(),
             time.GetProperty("captureTicks").GetInt64(), reference.AdvanceMode == "continuous");
@@ -47,7 +48,7 @@ internal static class EngineFixture
         return new StudioInput { X = input.X, Y = input.Y, Held = (int)input.Held, Press = press, Release = release };
     }
 
-    public static SimulationSample Sample(Simulation simulation, int frame, int pu, string phase, bool orbs = false, bool movers = false, bool springs = false)
+    public static SimulationSample Sample(Simulation simulation, int frame, int pu, string phase, bool orbs = false, bool movers = false, bool springs = false,bool upgrades=false)
     {
         var sample = new SimulationSample { Frame = frame, Pu = pu, Phase = phase };
         SimulationFieldCapture.AddPlayer(sample.Fields, simulation.Player);
@@ -61,6 +62,8 @@ internal static class EngineFixture
         sample.Fields["clock/capture-ticks"] = simulation.StudioCaptureTicks.ToString(System.Globalization.CultureInfo.InvariantCulture);
         SimulationFieldCapture.AddRandom(sample.Fields, UnityEngine.Random.state);
         SimulationFieldCapture.AddEconomy(sample.Fields, globalStats.currencyLookup, globalStats.globalUpgradeDict);
+        if(upgrades){foreach(var box in simulation.World.All<upgradeBox>())if(box.upgrade==localUpgrades.localUpgradeSet.cashPerLoop)SimulationFieldCapture.AddCashBox(sample.Fields,box,box.GetInstanceID());
+            foreach(var local in simulation.World.All<localUpgrades>())SimulationFieldCapture.AddLocalUpgrades(sample.Fields,local,local.GetInstanceID());}
         if (orbs) foreach (var orb in simulation.StudioOrbs) SimulationFieldCapture.AddOrb(sample.Fields, orb, orb.GetInstanceID());
         if (springs) foreach (var spring in simulation.World.All<SpringScript>()) SimulationFieldCapture.AddScript(sample.Fields, spring, "spring/" + spring.GetInstanceID());
         if (movers) foreach (var mover in simulation.World.All<PlatformMover>()) {

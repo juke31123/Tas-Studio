@@ -33,6 +33,17 @@ namespace IGTAP.EngineSim
     }
     public sealed partial class Shop
     {
+        internal void StudioSyncLocals()
+        {
+            if(Economy==null)return;
+            // Economy owns branchable values. Keep the original game objects
+            // coherent too, for native script reads and purchase witnesses.
+            foreach(var local in _sim.World.All<localUpgrades>())
+            {
+                var dict=local.localUpgradeDict;if(dict==null)continue;
+                foreach(var key in dict.Keys.ToArray())dict[key]=Economy.LocalOf(local,key);
+            }
+        }
         internal void StudioSyncCurrencies()
         {
             foreach (var currency in globalStats.currencyLookup.Keys.ToArray())

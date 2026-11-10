@@ -20,6 +20,8 @@ if(args.Length==3 && args[0]=="capture-audit")
     } catch(Exception error) { Console.Error.WriteLine(error.Message); return 1; }
 }
 if(args.Length==2 && args[0]=="solve") return EngineSearchRunner.Run(args[1]);
+if(args.Length==2 && args[0]=="beam-cache-check") return SearchCacheChecks.Run(args[1]);
+if(args.Length==3 && args[0]=="candidate-check") return CandidateChecks.Run(args[1],args[2]);
 if(args.Length==2 && args[0]=="collision-check") return CollisionChecks.Run(Path.GetFullPath(args[1]));
 if(args.Length==1 && args[0]=="self-check") return CompatibilityChecks.Run();
 if (args.Length != 2 || (args[0] != "trace" && args[0] != "restore-check" && args[0] != "worker-check" && args[0] != "benchmark"))
@@ -76,7 +78,7 @@ try
     int physicsEnd=File.Exists(physicsEndFile) ? int.Parse(File.ReadAllText(physicsEndFile)) : 0;
     SimulationTrace Template() => new SimulationTrace { Fps = native.Fps, StartFrame = native.StartFrame, StartPhase = native.StartPhase,
         Previous = native.Previous, GameHash = native.GameHash, WorldHash = native.WorldHash, Backend = "retargeted-frame-host-development-v1",
-        Inputs = native.Inputs.ToList(), Coverage = native.Coverage, AdvanceMode = native.AdvanceMode, AnimationHash = native.AnimationHash, CaptureOrbs = native.CaptureOrbs, CaptureMovers = native.CaptureMovers, CaptureSprings = native.CaptureSprings };
+        Inputs = native.Inputs.ToList(), Coverage = native.Coverage, AdvanceMode = native.AdvanceMode, AnimationHash = native.AnimationHash, CaptureOrbs = native.CaptureOrbs, CaptureMovers = native.CaptureMovers, CaptureSprings = native.CaptureSprings, CaptureUpgrades=native.CaptureUpgrades };
     void Checkpoint(int completed)
     {
         void Save(string name) { if (!checkpoints.ContainsKey(name)) checkpoints.Add(name, (simulation.CaptureStudioState(), completed + 1, MoverFields())); }
@@ -88,6 +90,7 @@ try
         if (simulation.World.All<SpringScript>().Any(s => (bool)typeof(SpringScript).GetField("cooldown", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public).GetValue(s))) Save("active-spring-cooldown");
         if (simulation.StudioActiveMover) Save("active-mover-wait");
         if (simulation.StudioMovingMover) Save("moving-platform");
+        if(native.CaptureUpgrades && simulation.World.All<upgradeBox>().Any(b=>b.upgrade==localUpgrades.localUpgradeSet.cashPerLoop&&b.TimesUsed>0))Save("cash-purchase");
         if (simulation.Courses.Any(c => Simulation.CourseTime(c) > .1f)) Save("active-course");
         if (simulation.Player.pauseMenu.menuOpen) Save("open-menu");
     }
@@ -115,7 +118,7 @@ try
                 ScaleX=simulation.Player.transform.lossyScale.x, Details=simulation.Physics.StudioLastContact});
             if (contacts.Count > 16) contacts.Dequeue();
         };
-        SimulationSample Sample(int pu, string phase) => EngineFixture.Sample(simulation, frame, pu, phase, native.CaptureOrbs, native.CaptureMovers, native.CaptureSprings);
+        SimulationSample Sample(int pu, string phase) => EngineFixture.Sample(simulation, frame, pu, phase, native.CaptureOrbs, native.CaptureMovers, native.CaptureSprings,native.CaptureUpgrades);
         if (first == 0) trace.Samples.Add(Sample(0, "start"));
         if (!diagnostics) { simulation.Physics.StudioContact = null; simulation.StudioAfterMovement=null; }
         bool diagnosed = false;

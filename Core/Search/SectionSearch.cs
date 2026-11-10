@@ -2,125 +2,316 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace Igtap.Tas.Core.Search
 {
-    // Bounded beam search: candidate evaluations run in parallel independent
-    // worlds. Stable ordering keeps a fixed seed/budget independent of task order.
-    // It reports best found, never global optimality or exhaustive coverage.
-    public sealed class SectionSearch
+    // Archive labels preserve diversity; they are not exact-state equivalence.
+    public sealed partial class SectionSearch
     {
         private sealed class Node
         {
-            public Node Parent;
-            public SearchState State;
-            public FrameInput Input;
-            public int Duration, Depth;
-            public long Id;
-            public double Score;
+            internal Node Parent;
+            internal SearchState State;
+            internal FrameInput Input;
+            internal FrameInput[] Rows;
+            internal MotionVector[] Positions;
+            internal int Duration, Depth, Owner;
+            internal long Id;
+            internal double Score;
+            internal double GoalScore=double.MaxValue,GoalDistance;
+        }
+        private sealed class Route
+        {
+            internal Node End;
+            internal FrameInput[] Inputs;
+            internal MotionVector[] Path;
+            internal Node[] Nodes;
+        }
+        private sealed class Batch
+        {
+            internal readonly List<Node> Nodes = new List<Node>();
+            internal readonly List<string> Reasons = new List<string>();
+            internal long Frames, Pus, Evaluated, Unsupported;
+            internal long LookaheadFrames;
+        }
+        private sealed class Candidate
+        {
+            internal FrameInput[] Inputs;
+            internal Node Resume;
+            internal bool Splice;
         }
         public SearchResult Run(SearchJob job, Func<bool> cancel, Action<SearchResult> progress,
             Func<SearchJob, ISearchSimulation> factory = null)
         {
             job.Validate();
-            if(job.Options.Mode=="wave") throw new NotSupportedException("Use Wave search for this search mode.");
-            if(factory==null && job.Simulator!=SearchJob.Backend) throw new NotSupportedException("A game-code search requires its prepared engine host.");
-            factory = factory ?? (j => new StaticPlatformSimulation(j));
-            var options = job.Options; var clock = Stopwatch.StartNew(); double lastPublish = -1;
-            var result = new SearchResult { JobId = job.Id, MovieHash = job.MovieHash, Simulator=job.Simulator, Status = "Searching",
-                Message = "Experimental external search; all results require native verification." };
-            var reasons = new List<string>(); var reasonLock = new object();
-            var actions = Actions(options.Abilities).ToArray();
-            var root = new Node { State = job.Start.Copy(), Depth = 0, Id = 0 };
-            var beam = new List<Node> { root };
-            Node best = null; long evaluations = 0, frames = 0, pus = 0, unsupported = 0, reached = 0;
-            using var simulations = new ThreadLocal<ISearchSimulation>(() => factory(job), true);
-            bool Stop() => cancel?.Invoke() == true || clock.Elapsed.TotalSeconds >= options.Seconds;
-            bool AtGoal(SearchState state) => Distance(job, state) <= options.GoalRadius;
-            void Publish(bool finished)
-            {
-                result.Evaluated = Interlocked.Read(ref evaluations); result.SimulatedFrames = Interlocked.Read(ref frames);
-                result.Pus = Interlocked.Read(ref pus); result.Unsupported = Interlocked.Read(ref unsupported); result.Reached = Interlocked.Read(ref reached);
-                result.Seconds = clock.Elapsed.TotalSeconds; result.Finished = finished;
-                lock (reasonLock) result.BlockedExamples = reasons.ToArray();
-                if (best != null) { result.BestFrames = best.Depth; result.Inputs = Inputs(best); result.Path = Path(root, result.Inputs, simulations.Value, options.Abilities); }
-                progress?.Invoke(result.Copy()); lastPublish = result.Seconds;
-            }
-            if (AtGoal(root.State))
-            { result.Status = "Already at goal"; result.Message = "The selected start already meets this goal. Choose a different location or a smaller radius."; Publish(true); return result; }
-            // The existing suffix is only a search seed, and cannot bypass the
-            // selected action restrictions. The live movie is never truncated here.
-            if (job.SeedInputs.Length > 0)
-            {
-                var sim = simulations.Value; sim.Restore(root.State); Node parent = root;
-                foreach (var raw in job.SeedInputs.Take(options.Horizon))
-                {
-                    var input = raw;
-                    if ((options.Abilities & SearchAbilities.Jump) == 0) input.Held &= ~(Buttons.Jump | Buttons.Jump2);
-                    if ((options.Abilities & SearchAbilities.Dash) == 0) input.Held &= ~(Buttons.Dash | Buttons.Dash2);
-                    input.Held &= ~(Buttons.Menu | Buttons.Reset); input.ExactEdges = false;
-                    if (Stop() || !sim.Step(input, options.Abilities, out _)) break;
-                    parent = new Node { Parent = parent, Input = input, Duration = 1, Depth = parent.Depth + 1, State = sim.State.Copy() };
-                    if (AtGoal(parent.State)) { best = parent; break; }
-                }
-            }
-            Publish(false);
-            for (int layer = 0; layer < options.Horizon && !Stop(); layer += options.ChunkFrames)
-            {
-                int duration = Math.Min(options.ChunkFrames, options.Horizon - layer);
-                var children = new Node[beam.Count * actions.Length];
-                Parallel.For(0, children.Length, new ParallelOptions { MaxDegreeOfParallelism = options.Workers }, index =>
-                {
-                    if (Stop()) return;
-                    Node parent = beam[index / actions.Length]; var input = actions[index % actions.Length];
-                    if (best != null && parent.Depth >= best.Depth) return;
-                    var sim = simulations.Value; sim.Restore(parent.State);
-                    int steps = 0; long startPus = sim.State.Pus;
-                    for (; steps < duration;)
-                    {
-                        Interlocked.Increment(ref frames);
-                        if (!sim.Step(input, options.Abilities, out var reason))
-                        {
-                            if (reason != null) { Interlocked.Increment(ref unsupported); lock (reasonLock) if (reasons.Count < 8 && !reasons.Contains(reason)) reasons.Add(reason); }
-                            Interlocked.Increment(ref evaluations); return;
-                        }
-                        steps++;
-                        if (AtGoal(sim.State)) break;
-                    }
-                    Interlocked.Add(ref pus, sim.State.Pus - startPus); Interlocked.Increment(ref evaluations);
-                    var state = sim.State.Copy();
-                    children[index] = new Node { Parent = parent, State = state, Input = input, Duration = steps,
-                        Depth = parent.Depth + steps, Id = ((long)layer + 1) * 100000000 + index,
-                        Score = Score(job, state) };
-                });
-                var next = new List<Node>(children.Length);
-                foreach (var child in children)
-                {
-                    if (child == null) continue;
-                    double distance = Distance(job, child.State); result.NearestDistance = Math.Min(result.NearestDistance, distance);
-                    if (AtGoal(child.State))
-                    {
-                        reached++;
-                        if (best == null || child.Depth < best.Depth || child.Depth == best.Depth && child.Score < best.Score) best = child;
-                    }
-                    else next.Add(child);
-                }
-                result.Depth = Math.Min(options.Horizon, layer + duration);
-                if (best != null && best.Depth <= layer + duration) break;
-                // Coarse grouping is a heuristic archive only, never an exact
-                // state equivalence claim. Keep multiple velocity/resource states.
-                beam = next.OrderBy(n => n.Score).ThenBy(n => n.Id).GroupBy(Key).Select(g => g.First()).Take(options.BeamWidth).ToList();
-                if (clock.Elapsed.TotalSeconds - lastPublish > .1) Publish(false);
-                if (beam.Count == 0) break;
-            }
-            result.Status = cancel?.Invoke() == true ? "Cancelled" : best != null ? "Candidate found" : clock.Elapsed.TotalSeconds >= options.Seconds ? "Budget reached" : "No candidate";
-            result.Message = best != null ? "Unverified candidate. Verify in game before accepting. Search was heuristic, not exhaustive." :
-                "No solution found within these limits. Unsupported world interactions stop individual rollouts.";
-            if (best == null && reasons.Count > 0) result.Message += " " + reasons[0];
-            Publish(true); return result;
+            if (job.Options.Mode == "wave") throw new NotSupportedException("Use Wave search for this search mode.");
+            if (factory == null && job.Simulator != SearchJob.Backend) throw new NotSupportedException("A game-code search requires its prepared engine host.");
+            return new Runner(job, cancel, progress, factory ?? (j => new StaticPlatformSimulation(j))).Run();
         }
+        private sealed class Runner
+        {
+            private readonly SearchJob _job;
+            private readonly SearchOptions _options;
+            private readonly Func<bool> _cancel;
+            private readonly Action<SearchResult> _progress;
+            private readonly Func<SearchJob, ISearchSimulation> _factory;
+            private readonly Stopwatch _clock = Stopwatch.StartNew();
+            private readonly FrameInput[] _actions;
+            private readonly Random _random;
+            private readonly SearchResult _result;
+            private readonly List<string> _reasons = new List<string>();
+            private readonly List<Route> _plateaus = new List<Route>();
+            private Archive _archive;
+            private readonly CheckpointRoute _route;
+            private BeamWorkers _workers;
+            private Node _root;
+            private Route _best;
+            private long _nextId, _frames, _pus;
+            private double _lastPublish = -1;
+            private int _round, _mutationSerial, _refinementStalls;
+            internal Runner(SearchJob job, Func<bool> cancel, Action<SearchResult> progress, Func<SearchJob, ISearchSimulation> factory)
+            {
+                _job = job; _options = job.Options; _cancel = cancel; _progress = progress; _factory = factory;
+                _route=new CheckpointRoute(_options);
+                _actions = Actions(_options.Abilities).ToArray(); _random = new Random(_options.Seed);
+                _result = new SearchResult { JobId = job.Id, MovieHash = job.MovieHash, Simulator = job.Simulator, Algorithm = "beam",
+                    Scheduling = _options.ExperimentalWorkStealing ? "experimental work stealing" : "affinity",
+                    Status = "Searching beam", Message = "Archive-guided external search; native verification required." };
+            }
+            private bool Stop() => _cancel?.Invoke() == true || _clock.Elapsed.TotalSeconds >= _options.Seconds;
+            private bool AtGoal(SearchState state) => state.Checkpoint==_route.Count;
+            internal SearchResult Run()
+            {
+                _root = new Node { State = _job.Start.Copy(), Owner = 0 };
+                _root.State.Checkpoint=_route.Advance(0,_root.State.Player.Position);
+                _result.CheckpointsReached=_root.State.Checkpoint;
+                _archive = new Archive(_job);
+                if (Stop()) return Finish();
+                if (AtGoal(_root.State))
+                { _result.Status = "Already at goal"; _result.Message = "The selected start already meets this goal."; Publish(true); return _result; }
+                using (_workers = new BeamWorkers(_options.Workers, () => new RouteSearchSimulation(_factory(_job),_route)))
+                try
+                {
+                    _workers.RunAll(worker => {
+                        var sim = worker.Sim; var start=_job.Start.Copy();start.Checkpoint=_route.Advance(0,sim.State.Player.Position);sim.Restore(start);
+                        if (worker.Index == 0) _root.State = sim.State.Copy();
+                        (sim as IBranchSearchSimulation)?.CaptureBranch();
+                    });
+                    _root.Score = Score(_job, _root.State, 0,_route); _archive.Offer(_root);
+                    if (!Stop() && _job.SeedInputs.Length > 0)
+                    {
+                        var seed = FilterSeed(_job.SeedInputs.Take(_options.FrameLimit).ToArray(), _options.Abilities);
+                        Batch batch = null;
+                        _workers.Run(0, worker => batch = Evaluate(worker, new Candidate { Inputs = seed, Resume = _root }, true));
+                        Consume(batch);
+                    }
+                    Publish(false);
+                    if (_best != null && !Stop()) Refine();
+                    while (!Stop())
+                    {
+                        int limit = _job.Objective?.HasLookahead==true?_options.FrameLimit+1:_best?.Inputs.Length ?? _options.FrameLimit + 1;
+                        var parents = _archive.Select(Math.Min(_options.BeamWidth, Math.Max(4, _options.Workers * 8)), _round, limit);
+                        if (parents.Count == 0)
+                        {
+                            if (_best == null || _refinementStalls >= 192 || !Refine()) break;
+                            _round++; Publish(false); continue;
+                        }
+                        Expand(parents); _round++;
+                        if (_best != null && !Stop() && (_round % 2 == 0 || _archive.Pending == 0)) Refine();
+                        Publish(false);
+                        if (_best?.Inputs.Length == 1&&_job.Objective?.HasLookahead!=true) break;
+                    }
+                }
+                catch (OperationCanceledException) when (Stop()) { }
+                finally { CaptureCacheStatistics(); }
+                return Finish();
+            }
+            private SearchResult Finish()
+            {
+                _result.Status = _cancel?.Invoke() == true ? "Cancelled" : _best != null ? "Candidate found" :
+                    _clock.Elapsed.TotalSeconds >= _options.Seconds ? "Budget reached" : "No candidate";
+                _result.Message = _best != null ? "Unverified candidate. Verify in game before accepting. Search was heuristic, not exhaustive." :
+                    "No solution found within these limits. Unsupported world interactions stop individual rollouts.";
+                if (_best == null && _reasons.Count > 0) _result.Message += " " + _reasons[0];
+                Publish(true); return _result;
+            }
+            private void CaptureCacheStatistics()
+            {
+                long hits = 0, replays = 0, replayFrames = 0, bytes = 0, replayPus = 0;
+                if (_workers != null)
+                foreach (var worker in _workers.Items)
+                    if (worker.Simulation is IBranchSearchSimulation cached)
+                    { var s = cached.CacheStatistics; hits += s.Hits; replays += s.Replays; replayFrames += s.ReplayFrames; bytes += s.Bytes; replayPus += s.ReplayPus; }
+                _result.StateHits = hits; _result.StateReplays = replays; _result.ReplayFrames = replayFrames; _result.CacheBytes = bytes;
+                _result.Pus = _pus + replayPus;
+            }
+            private void Publish(bool done)
+            {
+                if (!done && _clock.Elapsed.TotalSeconds - _lastPublish < .15) return;
+                CaptureCacheStatistics(); _result.SimulatedFrames = _frames + _result.ReplayFrames;
+                _result.Seconds = _clock.Elapsed.TotalSeconds; _result.Finished = done;
+                _result.ArchiveCells = _archive?.Cells ?? 0; _result.BlockedExamples = _reasons.ToArray();
+                _result.CheckpointCount=_route.Count;
+                if (_best != null) { _result.BestFrames = _best.Inputs.Length; _result.Inputs = _best.Inputs; _result.Path = _best.Path;_result.BestScore=_best.End.GoalScore;_result.LookaheadDistance=_best.End.GoalDistance; }
+                _progress?.Invoke(_result.Copy()); _lastPublish = _result.Seconds;
+            }
+            private void Consume(Batch batch)
+            {
+                if (batch == null) return;
+                _frames += batch.Frames; _pus += batch.Pus; _result.Evaluated += batch.Evaluated; _result.Unsupported += batch.Unsupported;
+                _result.LookaheadSimulatedFrames+=batch.LookaheadFrames;
+                foreach (string reason in batch.Reasons) if (_reasons.Count < 8 && !_reasons.Contains(reason)) _reasons.Add(reason);
+                foreach (var node in batch.Nodes)
+                {
+                    node.Id = ++_nextId; node.Score = Score(_job, node.State, node.Depth,_route);
+                    _result.Depth = Math.Max(_result.Depth, node.Depth);
+                    _result.CheckpointsReached=Math.Max(_result.CheckpointsReached,node.State.Checkpoint);
+                    _result.NearestDistance = Math.Min(_result.NearestDistance, Distance(_route, node.State));
+                    if (AtGoal(node.State))
+                    {
+                        _result.Reached++;
+                        if (_best == null || node.GoalScore<_best.End.GoalScore || node.GoalScore==_best.End.GoalScore&&node.Depth < _best.Inputs.Length)
+                        { bool first = _best == null; _best = BuildRoute(node); _plateaus.Clear(); _plateaus.Add(_best); if (first) _mutationSerial = 0; _refinementStalls = 0; }
+                        else if (node.GoalScore==_best.End.GoalScore&&node.Depth == _best.Inputs.Length && _plateaus.Count < 4)
+                        {
+                            var route = BuildRoute(node);
+                            if (!_plateaus.Any(p => SameRows(p.Inputs, route.Inputs))) _plateaus.Add(route);
+                        }
+                    }
+                    else _archive.Offer(node);
+                }
+            }
+            private void Expand(List<Node> parents)
+            {
+                var groups = Partition(parents); var output = new Batch[parents.Count];
+                int bestDepth = _job.Objective?.HasLookahead==true?_options.FrameLimit:_best?.Inputs.Length ?? _options.FrameLimit;
+                _result.StolenTasks += _workers.RunTasks(groups,_options.ExperimentalWorkStealing,(worker,index) => {
+                    {
+                        if (Stop()) return;
+                        var parent = parents[index]; var sim = worker.Sim; sim.Restore(parent.State);
+                        var fast = sim as IBranchSearchSimulation; object branch = fast?.CaptureBranch();
+                        var saved = fast == null ? sim.State.Copy() : null;
+                        var batch = new Batch(); output[index] = batch;
+                        int maximum = Math.Min(_options.FrameLimit - parent.Depth, bestDepth - parent.Depth);
+                        maximum = Math.Min(maximum, Math.Max(_options.ChunkFrames, Math.Min(64, (int)Math.Ceiling(_job.Fps * .12))));
+                        if (_route.DistanceToNext(parent.State) < Math.Max(_job.HalfWidth, _job.HalfHeight) * 3 + _route.Next(parent.State.Checkpoint).Radius)
+                            maximum = Math.Min(maximum, Math.Max(2, (int)Math.Ceiling((double)_job.Fps / 50)));
+                        foreach (var input in OrderedActions(parent))
+                        {
+                            if (Stop() || maximum <= 0) break;
+                            if (fast != null) fast.RestoreBranch(branch); else sim.Restore(saved);
+                            var positions = new List<MotionVector>(maximum); var nodes = new List<Node>();
+                            for (int step = 1; step <= maximum && !Stop(); step++)
+                            {
+                                long before = sim.State.Pus; batch.Frames++;
+                                if (!sim.Step(input, _options.Abilities, out string reason)) { Blocked(batch, reason); break; }
+                                batch.Pus += sim.State.Pus - before; positions.Add(sim.State.Player.Position);
+                                bool goal = AtGoal(sim.State);
+                                if (goal || HoldEndpoint(step, maximum, _options.ChunkFrames))
+                                {
+                                    var node=new Node { Parent = parent, Input = input, Duration = step, Depth = parent.Depth + step,
+                                        State = sim.State.Copy(), Owner = worker.Index };
+                                    if(goal)PriceGoal(sim,node,batch);nodes.Add(node);
+                                }
+                                if (goal) break;
+                            }
+                            var trace = positions.ToArray(); foreach (var node in nodes) { node.Positions = trace; batch.Nodes.Add(node); }
+                            batch.Evaluated++;
+                        }
+                    }
+                });
+                foreach (var batch in output) {if(batch!=null)_result.WorkerTasks++;Consume(batch);}
+            }
+            private List<int>[] Partition(List<Node> nodes)
+            {
+                var groups = Enumerable.Range(0, _options.Workers).Select(_ => new List<int>()).ToArray();
+                int target = (nodes.Count + _options.Workers - 1) / _options.Workers;
+                for (int i = 0; i < nodes.Count; i++)
+                {
+                    int owner = nodes[i].Owner, least = 0;
+                    for (int j = 1; j < groups.Length; j++) if (groups[j].Count < groups[least].Count) least = j;
+                    if (owner < 0 || owner >= groups.Length || groups[owner].Count >= target) owner = least;
+                    groups[owner].Add(i);
+                }
+                return groups;
+            }
+            private Batch Evaluate(BeamWorkers.Worker worker, Candidate candidate, bool retain)
+            {
+                var batch = new Batch(); var sim = worker.Sim; var parent = candidate.Resume ?? _root;
+                sim.Restore(parent.State);
+                var rows = new List<FrameInput>(16); var positions = new List<MotionVector>(16);
+                for (int frame = parent.Depth; frame < Math.Min(candidate.Inputs.Length, _options.FrameLimit) && !Stop(); frame++)
+                {
+                    var input = candidate.Inputs[frame]; long before = sim.State.Pus; batch.Frames++;
+                    if (!sim.Step(input, _options.Abilities, out var reason)) { Blocked(batch, reason); break; }
+                    batch.Pus += sim.State.Pus - before; rows.Add(input); positions.Add(sim.State.Player.Position);
+                    bool goal = AtGoal(sim.State);
+                    if (goal || rows.Count == 16 || frame + 1 == candidate.Inputs.Length)
+                    {
+                        parent = new Node { Parent = parent, Rows = rows.ToArray(), Positions = positions.ToArray(), Duration = rows.Count,
+                            Depth = frame + 1, Owner = worker.Index, State = sim.State.Copy() };
+                        if(goal)PriceGoal(sim,parent,batch);
+                        batch.Nodes.Add(parent); rows.Clear(); positions.Clear();
+                        if (retain) (sim as IBranchSearchSimulation)?.CaptureBranch();
+                    }
+                    if (goal) break;
+                }
+                batch.Evaluated++; return batch;
+            }
+            private bool Refine()
+            {
+                if (_best == null || _refinementStalls >= 192 || Stop()) return false;
+                var candidates = new List<Candidate>();
+                for (int attempt = 0; attempt < 24 && candidates.Count < Math.Max(2, _options.Workers * 2); attempt++)
+                {
+                    var route = _plateaus[(_mutationSerial / 8) % _plateaus.Count];
+                    var candidate = Mutate(route, _mutationSerial++, _random, _job, _archive);
+                    if (candidate == null || candidate.Inputs.Length == 0 || candidate.Inputs.Length > _options.FrameLimit || SameRows(candidate.Inputs, route.Inputs)) continue;
+                    if (!ReferenceEquals(route, _best)) _result.PlateauDrifts++;
+                    candidates.Add(candidate);
+                }
+                if (candidates.Count == 0) { _refinementStalls += 4; return false; }
+                double before = _best.End.GoalScore;
+                var groups = Partition(candidates.Select(c => c.Resume ?? _root).ToList()); var output = new Batch[candidates.Count];
+                _result.StolenTasks += _workers.RunTasks(groups,_options.ExperimentalWorkStealing,(worker,index) => {
+                    if (!Stop()) output[index] = Evaluate(worker, candidates[index], false);
+                });
+                for (int i = 0; i < output.Length; i++)
+                {
+                    if (output[i] == null) continue;
+                    _result.Refinements++; if (candidates[i].Splice) _result.Splices++;
+                    _result.WorkerTasks++;
+                    Consume(output[i]);
+                }
+                _refinementStalls = _best.End.GoalScore < before ? 0 : _refinementStalls + candidates.Count; return true;
+            }
+            private void PriceGoal(ISearchSimulation simulation,Node node,Batch batch)
+            {
+                var price=_job.Objective?.Evaluate(simulation,node.Depth,_options.Abilities)??new CheckpointSearchObjective.Evaluation(node.Depth,0);
+                node.GoalScore=price.Score;node.GoalDistance=price.Distance;
+                batch.LookaheadFrames+=price.Frames;batch.Frames+=price.Frames;batch.Pus+=price.Pus;batch.Unsupported+=price.Unsupported;
+            }
+            private FrameInput[] OrderedActions(Node parent)
+            {
+                var ordered=(FrameInput[])_actions.Clone(); var p=parent.State.Player;
+                var target=_route.Next(parent.State.Checkpoint);
+                double dx=target.X-p.Position.X,dy=target.Y-p.Position.Y;
+                double distance=Math.Max(1,Math.Sqrt(dx*dx+dy*dy));
+                double Priority(FrameInput input)
+                {
+                    double value=(dx*input.X+dy*input.Y)/distance;
+                    if(input.Down(Buttons.Jump))value+=dy>_job.HalfHeight && p.Grounded ? .5 : -.1;
+                    if(input.Down(Buttons.Dash))value+=distance>_job.HalfWidth*6 && p.AirDashes>0 ? .25 : -.15;
+                    return value;
+                }
+                Array.Sort(ordered,(a,b) => {int c=Priority(b).CompareTo(Priority(a));if(c!=0)return c;
+                    c=((int)a.Held).CompareTo((int)b.Held);if(c!=0)return c;c=a.X.CompareTo(b.X);return c!=0?c:a.Y.CompareTo(b.Y);});
+                return ordered;
+            }
+        }
+        private static void Blocked(Batch batch, string reason)
+        { if (reason != null) { batch.Unsupported++; if (batch.Reasons.Count < 8 && !batch.Reasons.Contains(reason)) batch.Reasons.Add(reason); } }
+        private static bool HoldEndpoint(int frame, int maximum, int hint) => frame == 1 || frame == maximum || frame == hint || (frame & (frame - 1)) == 0;
         private static IEnumerable<FrameInput> Actions(SearchAbilities abilities)
         {
             for (int x = -1; x <= 1; x++) for (int y = -1; y <= 1; y++)
@@ -128,32 +319,30 @@ namespace Igtap.Tas.Core.Search
                     for (int dash = 0; dash <= ((abilities & SearchAbilities.Dash) != 0 ? 1 : 0); dash++)
                         yield return new FrameInput { X = x, Y = y, Held = (jump == 1 ? Buttons.Jump : 0) | (dash == 1 ? Buttons.Dash : 0) };
         }
-        private static double Distance(SearchJob job, SearchState state)
-        { double x = state.Player.Position.X - job.Options.GoalX, y = state.Player.Position.Y - job.Options.GoalY; return Math.Sqrt(x * x + y * y); }
-        private static double Score(SearchJob job, SearchState state)
+        private static double Distance(CheckpointRoute route, SearchState state)
+        { return route.Remaining(state); }
+        private static double Score(SearchJob job, SearchState state, int depth,CheckpointRoute route)
         {
-            var p = state.Player; double dx = job.Options.GoalX - p.Position.X, dy = job.Options.GoalY - p.Position.Y;
+            var p = state.Player;var next=route.Next(state.Checkpoint);double dx=next.X-p.Position.X,dy=next.Y-p.Position.Y;
             double distance = Math.Max(1, Math.Sqrt(dx * dx + dy * dy));
-            return distance - Math.Min(distance * .25, (dx * p.Velocity.X + dy * p.Velocity.Y) / distance * .03);
+            return route.Remaining(state) - Math.Min(distance * .25, (dx * p.Velocity.X + dy * p.Velocity.Y) / distance * .04) + depth * .015;
         }
-        private static string Key(Node node)
+        private static FrameInput[] FilterSeed(FrameInput[] inputs, SearchAbilities abilities)
         {
-            var p = node.State.Player;
-            return Math.Floor(p.Position.X / 8) + ":" + Math.Floor(p.Position.Y / 8) + ":" + Math.Floor(p.Velocity.X / 100) + ":" +
-                Math.Floor(p.Velocity.Y / 100) + ":" + p.AirDashes + ":" + p.AirJumps + ":" + p.Dashing + ":" + p.Grounded + ":" +
-                (int)node.Input.Held + ":" + node.Input.X + ":" + node.Input.Y + ":" + node.State.Phase.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+            Buttons mask = ((abilities & SearchAbilities.Jump) != 0 ? Buttons.Jump : 0) | ((abilities & SearchAbilities.Dash) != 0 ? Buttons.Dash : 0);
+            for (int i = 0; i < inputs.Length; i++) { var row = inputs[i]; row.Held &= mask; row.Press &= mask; row.Release &= mask; inputs[i] = row; }
+            return inputs;
         }
-        private static FrameInput[] Inputs(Node node)
+        private static Route BuildRoute(Node end)
         {
-            var result = new FrameInput[node.Depth];
-            for (var n = node; n.Parent != null; n = n.Parent) for (int i = n.Depth - n.Duration; i < n.Depth; i++) result[i] = n.Input;
-            return result;
+            var nodes = new List<Node>(); for (var n = end; n != null; n = n.Parent) nodes.Add(n); nodes.Reverse();
+            var inputs = new FrameInput[end.Depth]; var path = new MotionVector[end.Depth + 1]; path[0] = nodes[0].State.Player.Position;
+            foreach (var n in nodes) for (int i = 0; i < n.Duration; i++)
+            { int frame = n.Depth - n.Duration + i; inputs[frame] = n.Rows == null ? n.Input : n.Rows[i]; path[frame + 1] = n.Positions[i]; }
+            return new Route { End = end, Inputs = inputs, Path = path, Nodes = nodes.ToArray() };
         }
-        private static MotionVector[] Path(Node root, FrameInput[] inputs, ISearchSimulation sim, SearchAbilities abilities)
-        {
-            sim.Restore(root.State); var path = new List<MotionVector> { sim.State.Player.Position };
-            foreach (var input in inputs) { if (!sim.Step(input, abilities, out _)) break; path.Add(sim.State.Player.Position); }
-            return path.ToArray();
-        }
+        private static bool SameRow(FrameInput a, FrameInput b) => a.X == b.X && a.Y == b.Y && a.Held == b.Held && a.ExactEdges == b.ExactEdges && a.Press == b.Press && a.Release == b.Release;
+        private static bool SameRows(FrameInput[] a, FrameInput[] b)
+        { if (a.Length != b.Length) return false; for (int i = 0; i < a.Length; i++) if (!SameRow(a[i], b[i])) return false; return true; }
     }
 }

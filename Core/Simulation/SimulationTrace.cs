@@ -30,6 +30,7 @@ namespace Igtap.Tas.Core.Simulation
         public bool CaptureOrbs;
         public bool CaptureMovers;
         public bool CaptureSprings;
+        public bool CaptureUpgrades;
         public double StartPhase;
         public FrameInput Previous;
         public List<FrameInput> Inputs = new List<FrameInput>();
@@ -75,13 +76,13 @@ namespace Igtap.Tas.Core.Simulation
         { using var hash = SHA256.Create(); using var file = File.OpenRead(path); return Convert.ToBase64String(hash.ComputeHash(file)); }
         // Float bits deliberately have no epsilon. Contact/branch thresholds and
         // signed zero must not disappear inside a position tolerance.
-        public static string Float(float value) => BitConverter.ToInt32(BitConverter.GetBytes(value), 0).ToString("x8", CultureInfo.InvariantCulture);
+        public static string Float(float value) => BitConverter.SingleToInt32Bits(value).ToString("x8", CultureInfo.InvariantCulture);
         public static string Double(double value) => BitConverter.DoubleToInt64Bits(value).ToString("x16", CultureInfo.InvariantCulture);
         public static SimulationComparison Compare(SimulationTrace native, SimulationTrace offline)
         {
             native.Validate(); offline.Validate();
             var result = new SimulationComparison();
-            if (native.GameHash != offline.GameHash || native.WorldHash != offline.WorldHash || native.AnimationHash != offline.AnimationHash || native.CaptureOrbs != offline.CaptureOrbs || native.CaptureMovers != offline.CaptureMovers || native.CaptureSprings != offline.CaptureSprings || native.Fps != offline.Fps || native.AdvanceMode != offline.AdvanceMode ||
+            if (native.GameHash != offline.GameHash || native.WorldHash != offline.WorldHash || native.AnimationHash != offline.AnimationHash || native.CaptureOrbs != offline.CaptureOrbs || native.CaptureMovers != offline.CaptureMovers || native.CaptureSprings != offline.CaptureSprings || native.CaptureUpgrades!=offline.CaptureUpgrades || native.Fps != offline.Fps || native.AdvanceMode != offline.AdvanceMode ||
                 native.StartFrame != offline.StartFrame || Double(native.StartPhase) != Double(offline.StartPhase) ||
                 !SameInput(native.Previous, offline.Previous) || native.Inputs.Count != offline.Inputs.Count ||
                 native.Inputs.Where((input, i) => !SameInput(input, offline.Inputs[i])).Any())

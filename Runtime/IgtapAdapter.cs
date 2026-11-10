@@ -11,7 +11,7 @@ using UnityEngine.InputSystem;
 
 namespace Igtap.Tas.Runtime
 {
-    internal sealed class IgtapAdapter : IGameAdapter, IEngineSearchCapture
+    internal sealed class IgtapAdapter : IGameAdapter, IEngineSearchCapture, ISearchMapCapture
     {
         private const BindingFlags Fields = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
         private static readonly string[] ActionFields = { "moveAction", "jumpAction", "jumpAction2", "dashAction", "dashAction2", "resetAction" };
@@ -32,6 +32,7 @@ namespace Igtap.Tas.Runtime
         private readonly FieldInfo _deadField = RequireField("isDead");
         private readonly InputAction[] _actions = new InputAction[7];
         private Rigidbody2D _body;
+        private readonly StringBuilder _probeBuilder = new StringBuilder(2048);
         public Movement Player { get; private set; }
         public bool IsAlive => Player != null && Player.isActiveAndEnabled;
         public bool OnMainMenu => UnityEngine.SceneManagement.SceneManager.GetActiveScene().path == ConfiguredStart.MenuScene;
@@ -134,7 +135,7 @@ namespace Igtap.Tas.Runtime
         {
             if (!IsAlive) return null;
             var p = Player;
-            var builder = new StringBuilder();
+            var builder = _probeBuilder; builder.Clear();
             var fields = new SortedDictionary<string, string>(StringComparer.Ordinal);
             foreach (var field in _probeFields)
             {
@@ -145,11 +146,12 @@ namespace Igtap.Tas.Runtime
                 fields[field.Name] = text;
                 builder.Append(text).Append(';');
             }
+            var position=_body.position; var render=p.transform.position;var velocity=_body.linearVelocity;var control=p.Velocity;
             return new StateProbe {
-                X = _body.position.x, Y = _body.position.y,
-                RenderX = p.transform.position.x, RenderY = p.transform.position.y,
-                BodyVelocityX = _body.linearVelocity.x, BodyVelocityY = _body.linearVelocity.y,
-                VelocityX = p.Velocity.x, VelocityY = p.Velocity.y,
+                X = position.x, Y = position.y,
+                RenderX = render.x, RenderY = render.y,
+                BodyVelocityX = velocity.x, BodyVelocityY = velocity.y,
+                VelocityX = control.x, VelocityY = control.y,
                 MomentumX = p.momentum.x, MomentumY = p.momentum.y,
                 Grounded = p.onGround, OnWall = p.OnWall, Dashing = p.dashActive, FacingRight = p.facingRight,
                 AirJumps = p.airJumpsLeft, AirDashes = p.airDashesLeft, Cutscene = (int)p.cutsceneMode,
@@ -162,6 +164,7 @@ namespace Igtap.Tas.Runtime
         public Core.Search.AbilityResources SearchResources() => new Core.Search.AbilityResources { AirJumps = Player.airJumpsLeft,
             Dashes = Player.airDashesLeft, WallJumps = Player.wallJumpsLeft, Alive = IsAlive && !(bool)_deadField.GetValue(Player) };
         public void CaptureSearch(TasSession session, Core.Search.SearchJob job) => SearchExport.Capture(session, job);
+        public Core.Search.SearchBody[] CaptureSearchMap(TasSession session){var job=new Core.Search.SearchJob{Fps=session.Movie.FrameRate,Options=session.Search.Options.Copy()};SearchExport.Capture(session,job,true);return job.Geometry;}
         private bool _enginePreviousHistory;
         public void BeginEngineCapture() { _enginePreviousHistory=SimulationCapture.CollectHistory; SimulationCoroutineCapture.Clear(); SimulationCapture.BeginHistory(); SimulationCapture.CollectHistory=true; }
         public void ExportEngineBootstrap(TasSession session,string directory) => SimulationCapture.Export(session,directory);

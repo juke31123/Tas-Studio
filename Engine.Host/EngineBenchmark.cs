@@ -31,7 +31,7 @@ internal static class EngineBenchmark
         watch.Stop(); allocated=GC.GetAllocatedBytesForCurrentThread()-allocated;
         double seconds=watch.Elapsed.TotalSeconds; int frames=runs*native.Inputs.Count;
         var expected=native.Samples.Last();
-        var actual=EngineFixture.Sample(simulation,expected.Frame,expected.Pu,expected.Phase,native.CaptureOrbs,native.CaptureMovers,native.CaptureSprings);
+        var actual=EngineFixture.Sample(simulation,expected.Frame,expected.Pu,expected.Phase,native.CaptureOrbs,native.CaptureMovers,native.CaptureSprings,native.CaptureUpgrades);
         bool passed=expected.Fields.Count==actual.Fields.Count && expected.Fields.All(p => actual.Fields.TryGetValue(p.Key,out string value) && p.Value==value);
         long snapshotBytes=GC.GetAllocatedBytesForCurrentThread(); var snapshots=Stopwatch.StartNew();
         const int snapshotsCount=32;

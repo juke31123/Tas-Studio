@@ -11,10 +11,11 @@ namespace IGTAP.EngineSim
     {
         private bool _studioSearchGuards;
         private bool _studioSpringWitnesses;
+        private bool _studioUpgradeWitnesses;
         private static readonly FieldInfo StudioMoverType=typeof(PlatformMover).GetField("PlatformType",BindingFlags.Instance|BindingFlags.NonPublic|BindingFlags.Public)
             ?? throw new MissingFieldException("PlatformMover.PlatformType");
         private static readonly object StudioZipType=Enum.Parse(StudioMoverType.FieldType,"zipMover");
-        public void ConfigureStudioSearchGuards(JsonElement definition, bool springWitnesses = false)
+        public void ConfigureStudioSearchGuards(JsonElement definition, bool springWitnesses = false,bool upgradeWitnesses=false)
         {
             var missing=new HashSet<int>();
             foreach(var node in definition.GetProperty("objects").EnumerateArray())
@@ -28,7 +29,7 @@ namespace IGTAP.EngineSim
             foreach(var data in World.Colliders)
                 if(data.Collider.enabled && data.Collider.gameObject.activeInHierarchy && missing.Contains(data.Collider.GetInstanceID()))
                     throw new NotSupportedException("Active geometry was not exported: " + data.Collider.name);
-            _studioSearchGuards=true; _studioSpringWitnesses=springWitnesses;
+            _studioSearchGuards=true; _studioSpringWitnesses=springWitnesses;_studioUpgradeWitnesses=upgradeWitnesses;
             Physics.StudioCheckExistingMechanics();
             Hooks.HitSpring=(movement,up) => {
                 if (!springWitnesses) throw new NotSupportedException("Spring contact requires native spring-state witnesses.");
@@ -47,6 +48,12 @@ namespace IGTAP.EngineSim
             if(target is SpringScript && !_studioSpringWitnesses)
                 throw new NotSupportedException("Spring contact requires native spring-state witnesses.");
             if(target is PlatformMover mover && Equals(StudioMoverType.GetValue(mover),StudioZipType)) return;
+            if(target is upgradeBox box && box.upgrade==localUpgrades.localUpgradeSet.cashPerLoop &&
+                (!box.buyMax||box.neverBuyMax) && !VmanScript.isCurrentlyVman)
+            {
+                if(!_studioUpgradeWitnesses)throw new NotSupportedException("CashPerLoop contact requires native purchase-state witnesses. Capture a new search from this build.");
+                return;
+            }
             switch(target.GetType().Name)
             {
                 case "PlatformMover": case "upgradeBox": case "TeleporterScript":

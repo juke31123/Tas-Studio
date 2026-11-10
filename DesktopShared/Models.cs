@@ -22,7 +22,7 @@ namespace Igtap.Tas.DesktopModel
     {
         public Keybinds Bindings = new Keybinds();
         public int Version = 1;
-        public string ModVersion = "0.12.2", Mode = "", Status = "", Name = "", Ack = "", Error = "";
+        public string ModVersion = StudioVersion.Text, Mode = "", Status = "", Name = "", Ack = "", Error = "";
         public int Cursor, Frames, Fps, Rerecords, Page, Revision, CompletedSequence;
         public bool CanEditTimeline, TimelineInput, PendingEdits;
         public int UndoCount, RedoCount;
@@ -56,8 +56,10 @@ namespace Igtap.Tas.DesktopModel
     {
         public SearchOptions Options = new SearchOptions();
         public SearchResult Result = new SearchResult();
-        public GoalCameraBindings CameraBindings = new GoalCameraBindings();
-        public bool Busy, PlacingGoal, CanStart, CanAccept, Preview;
+        public bool Busy, CanStart, CanAccept, Preview;
+        public SearchBody[] Geometry=Array.Empty<SearchBody>();
+        public MotionVector Player;
+        public int MapRevision;
     }
 
 }

@@ -59,6 +59,7 @@ internal static class PassiveReplay
                     ["colliders"]=new JArray(boxes.Select(c=>new JArray(c["offset"]["x"],c["offset"]["y"],c["size"]["x"],c["size"]["y"],c["excludeLayers"],c["enabled"])))};
                 SearchFiles.Write(Path.Combine(folder,"start.json"),state);
                 using var doc=JsonDocument.Parse(state.ToString());sim.LoadStart(doc.RootElement,false);
+                using(var worldDoc=JsonDocument.Parse(world.ToString()))sim.ConfigureStudioBodyPoses(worldDoc.RootElement);
                 var palette=typeof(Movement).GetField("afterimageColors",BindingFlags.Instance|BindingFlags.NonPublic);
                 if(palette?.GetValue(sim.Player)==null) palette?.SetValue(sim.Player,new UnityEngine.Color[2]);
                 int fps=(int)start["targetFps"];if(Array.IndexOf(new[]{30,50,60,100,120,144,165,244,280},fps)<0)fps=280;

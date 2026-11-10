@@ -10,11 +10,18 @@ See [section-search release scope](docs/SECTION-SEARCH-RELEASE.md) and
 
 TAS authoring tools for **IGTAP: an Incremental Game That's Also a Platformer**, using the Recharge mod loader.
 
-Author: **Juke**. Current version: **0.12.2**. Mod ID: `Tas.Studio`. Entry assembly: `TasStudio.dll`.
+Author: **Juke**. Current version: **0.17.1**. Mod ID: `Tas.Studio`. Entry assembly: `TasStudio.dll`.
 
 ## Features
 
-- Dedicated **Bruteforce** window: choose a start frame, goal point/radius and allowed abilities, then use **Beam search** or **Wave search**. An optional **Exhaustive input chain** mode times a prescribed action sequence. Progress includes archive cells, splices, plateau changes and cached-state replays. Free-camera goal placement and rebindable arrow controls do not enter the recording. **Native verification required.** See [coverage and controls](docs/BRUTEFORCE.md).
+- The in-game **Mods** entry and Tas Studio menu title show the installed version, shared with the loader and desktop labels.
+- **Compact run files** save input changes with explicit start frames/durations, checked against the total frame count. Related state values are grouped, movement/world changes are stored and the starting-world witness is compressed. Inputs, per-frame movement hashes, timing and replay checks remain intact. See [file storage](docs/FILE-STORAGE.md).
+- **Checkpoint map** in Bruteforce: place and drag numbered circular goals, middle-drag to pan, edit coordinates/radii and reorder points. Beam, Wave and chain searches retain ordered checkpoint progress in every branch and offer whole-route or per-checkpoint time budgets with optional lookahead. Native playback must visit every point in order and finish at the last before acceptance.
+- Local **CashPerLoop** single purchases are supported by the game-code search, with native currency, price, cooldown and local-upgrade witnesses. Other upgrades, buy-max and Vman purchases remain guarded until validated.
+- Dedicated **Bruteforce** window: choose a start frame, goal point/radius and allowed abilities, then use **Beam search** or **Wave search**. An optional **Exhaustive input chain** mode times a prescribed action sequence. Progress includes archive cells, splices, plateau changes and cached-state replays. Optional frame targets allow a configurable overrun (default 1000 frames). Goal placement happens in the checkpoint map. **Native verification required.** See [coverage and controls](docs/BRUTEFORCE.md).
+- **Beam search** keeps diverse reachable states, explores mixed input holds including single frames, and improves routes with cuts, retiming and splices. Dedicated workers reuse their own native snapshots; progress reports cache and refinement work without re-simulating the preview.
+- Optional **Experimental work stealing (Beam only)** lets idle workers take queued branches while preserving private worlds and snapshots. Affinity remains the default. More threads can increase reconstruction costs; compare on the current section.
+- Desktop stats sample at the display's 10 Hz cadence, timeline pages use direct indexing, world checks reuse per-capture paths, saves stream JSON, and repeated frame steps coalesce automatic profiler writes. Replay witnesses and explicit Save edits remain intact.
 - Multi-level **Undo/Redo**, durable draft recovery, and verified live-checkpoint reuse. Edits still apply only when you click **Save edits**.
 - **Checks** tab: export detailed performance profiles or verify a recorded movie with continuous and frame-stepped playback. Periodic world checks cover more than player movement, and atom-door progression stays local to the TAS. See [replay reliability](docs/REPLAY-RELIABILITY.md).
 - **Step PU / F11** advances to the next frame with a physics update and pauses. Available in both desktop windows with a configurable keybind. Red **~** rows retain previous PU timing after edits until re-execution updates them.
@@ -57,7 +64,7 @@ with bundled .NET runtimes and excludes the generated game assembly. The default
 build without that switch is the smaller development package; its static solver
 still needs .NET 10 or a separately registered host.
 
-The build produces `artifacts/Tas.Studio/` and `artifacts/Tas-Studio-0.12.2-clean.zip`. Follow `INSTALL.md` to install the package. Build outputs and downloaded dependencies are ignored by Git.
+The build produces `artifacts/Tas.Studio/` and `artifacts/Tas-Studio-0.17.1.zip`. Follow `INSTALL.md` to install the package. Build outputs and downloaded dependencies are ignored by Git.
 
 ## Source layout
 

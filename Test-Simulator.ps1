@@ -5,9 +5,14 @@ param(
     [string]$ReferenceTasPath,
     [int]$ReferenceEndFrame = -1,
     [switch]$SearchSmoke,
+    [switch]$SearchCheckpoints,
+    [switch]$CheckpointBudgets,
+    [switch]$VerifyCompactMovie,
     [ValidateSet('chain','beam','wave')][string[]]$SearchModes = @('chain','beam'),
     [int]$SearchSmokeStartFrame = 100,
     [int]$SearchSmokeEndFrame = 130,
+    [ValidateRange(1,32)][int]$SearchWorkers = 2,
+    [switch]$ExperimentalWorkStealing,
     [int]$PhysicsDiagnosticsEndFrame = 0,
     [int[]]$FrameRates = @(),
     [string]$EngineHostPath,
@@ -39,6 +44,9 @@ if (![string]::IsNullOrWhiteSpace($ReferenceTasPath)) {
 }
 if ($null -eq $referencePath -and $PSBoundParameters.ContainsKey('ReferenceEndFrame')) { throw 'ReferenceEndFrame requires ReferenceTasPath.' }
 if($SearchSmoke -and ($null -eq $referencePath -or $SearchSmokeStartFrame -lt 0 -or $SearchSmokeEndFrame -le $SearchSmokeStartFrame -or $ReferenceEndFrame -le $SearchSmokeEndFrame)) { throw 'SearchSmoke requires a captured reference containing the entire selected start/end range.' }
+if($SearchCheckpoints -and !$SearchSmoke){throw 'SearchCheckpoints requires SearchSmoke.'}
+if($CheckpointBudgets -and !$SearchCheckpoints){throw 'CheckpointBudgets requires SearchCheckpoints.'}
+if($VerifyCompactMovie -and !$referencePath){throw 'VerifyCompactMovie requires ReferenceTasPath.'}
 foreach ($fps in $FrameRates) { if ($fps -notin @(30,50,60,100,120,144,165,244,280)) { throw "Unsupported FPS: $fps" } }
 if ($FrameRates.Count -eq 0) { throw 'Select at least one frame rate.' }
 if (@($FrameRates | Sort-Object -Unique).Count -ne $FrameRates.Count) { throw 'Each frame rate may appear only once.' }
@@ -81,8 +89,13 @@ try {
         Set-Content -LiteralPath (Join-Path $run 'search-smoke.txt') -Value $engine
         Set-Content -LiteralPath (Join-Path $run 'search-range.txt') -Value "$SearchSmokeStartFrame,$SearchSmokeEndFrame"
         Set-Content -LiteralPath (Join-Path $run 'search-modes.txt') -Value ($SearchModes -join ',')
+        Set-Content -LiteralPath (Join-Path $run 'search-workers.txt') -Value $SearchWorkers
+        if($ExperimentalWorkStealing){Set-Content -LiteralPath (Join-Path $run 'search-stealing.txt') -Value 'true'}
+        if($SearchCheckpoints){Set-Content -LiteralPath (Join-Path $run 'search-checkpoints.txt') -Value 'true'}
+        if($CheckpointBudgets){Set-Content -LiteralPath (Join-Path $run 'search-checkpoint-budgets.txt') -Value 'true'}
     }
-    $timeoutSeconds = if ($SearchSmoke) { 480 } else { 240 }
+    if($VerifyCompactMovie){Set-Content -LiteralPath (Join-Path $run 'compact-replay.txt') -Value 'true'}
+    $timeoutSeconds = if ($SearchSmoke -or $VerifyCompactMovie) { 480 } else { 240 }
     Set-Content -LiteralPath (Join-Path $run 'timeout-seconds.txt') -Value $timeoutSeconds
     if($PhysicsDiagnosticsEndFrame -gt 0) { Set-Content -LiteralPath (Join-Path $run 'physics-end.txt') -Value $PhysicsDiagnosticsEndFrame }
     $env:TAS_STUDIO_SIM_CAPTURE = $run

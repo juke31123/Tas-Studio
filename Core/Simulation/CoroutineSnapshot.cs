@@ -11,6 +11,22 @@ namespace Igtap.Tas.Core.Simulation
     internal static class CoroutineSnapshot
     {
         private static readonly MethodInfo Clone = typeof(object).GetMethod("MemberwiseClone", BindingFlags.Instance | BindingFlags.NonPublic);
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<Type,FieldInfo[]> Layouts =
+            new System.Collections.Concurrent.ConcurrentDictionary<Type,FieldInfo[]>();
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<Type,bool> ValueArrays =
+            new System.Collections.Concurrent.ConcurrentDictionary<Type,bool>();
+        private static FieldInfo[] Layout(Type type) => Layouts.GetOrAdd(type,key => {
+            var fields=new List<FieldInfo>();
+            for(var owner=key;owner!=null && owner!=typeof(object);owner=owner.BaseType)
+                fields.AddRange(owner.GetFields(BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic|BindingFlags.DeclaredOnly));
+            return fields.ToArray();
+        });
+        private static bool ContainsOnlyValues(Type type) => ValueArrays.GetOrAdd(type,key => {
+            if(key.IsPrimitive || key.IsEnum || key==typeof(decimal))return true;
+            if(!key.IsValueType)return false;
+            foreach(var field in Layout(key))if(!ContainsOnlyValues(field.FieldType))return false;
+            return true;
+        });
         private sealed class Identity : IEqualityComparer<object>
         {
             public new bool Equals(object x, object y) => ReferenceEquals(x, y);
@@ -32,6 +48,7 @@ namespace Igtap.Tas.Core.Simulation
                 if (value is Array source)
                 {
                     var array = (Array)source.Clone(); copied.Add(value, array);
+                    if(ContainsOnlyValues(type.GetElementType()))return array;
                     var indices = new int[source.Rank];
                     for (int axis = 0; axis < indices.Length; axis++) indices[axis] = source.GetLowerBound(axis);
                     for (int item = 0; item < source.Length; item++)
@@ -48,9 +65,7 @@ namespace Igtap.Tas.Core.Simulation
                 if (!type.IsValueType && !(value is IEnumerator) && !type.IsDefined(typeof(CompilerGeneratedAttribute), false))
                     throw new NotSupportedException("Coroutine snapshot needs a copier: " + type.FullName);
                 object copy = Clone.Invoke(value, null); copied.Add(value, copy);
-                for (Type owner = type; owner != null && owner != typeof(object); owner = owner.BaseType)
-                    foreach (var field in owner.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
-                        field.SetValue(copy, Visit(field.GetValue(value)));
+                foreach (var field in Layout(type)) field.SetValue(copy, Visit(field.GetValue(value)));
                 return copy;
             }
             var result = new IEnumerator[bodies.Length];

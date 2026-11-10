@@ -25,6 +25,7 @@ namespace Igtap.Tas.Runtime
         private string[] _movies = Array.Empty<string>(), _states = Array.Empty<string>();
         private bool _recoverable;
         public bool Connected => Channel.IsOpen;
+        public bool SampleDue => Connected && Time.realtimeSinceStartupAsDouble >= _nextSample;
         public string Error => string.IsNullOrEmpty(Channel.Error) ? _error : Channel.Error;
         public DesktopBridge(TasSession session, Func<StudioChannel, IStudioWindow> factory = null)
         {
@@ -53,7 +54,6 @@ namespace Igtap.Tas.Runtime
             }
             if (!Connected)
             {
-                _session.Search.GoalPlacement?.End();
                 if (_attached)
                 {
                     // Closing the native window must not leave an invisible
@@ -86,11 +86,9 @@ namespace Igtap.Tas.Runtime
             switch (c.Action)
             {
                 case "searchOpen": _session.Search.Open(); break;
-                case "searchGoalPlayer": _session.Search.GoalFromPlayer(); break;
-                case "searchGoalCamera": _session.Search.ToggleGoalPlacement(); break;
-                case "searchEndGoal": _session.Search.GoalPlacement?.End(); break;
-                case "searchCameraPan": _session.Search.GoalPlacement?.Pan(c.X, c.Y); break;
-                case "searchCameraBinding": _session.Search.SaveCameraBinding(c.Start, c.Name); break;
+                case "searchMap": _session.Search.CaptureMap(); break;
+                case "searchCheckpoints": _session.Search.SetCheckpoints(c.SearchOptions?.Checkpoints??throw new ArgumentException("Missing checkpoints.")); break;
+                case "searchCheckpointPlayer": var point=_session.Adapter.SearchWorldPosition();_session.Search.AppendCheckpoint(point.X,point.Y,c.Value);break;
                 case "searchStart": _session.Search.Start(c.SearchOptions ?? throw new ArgumentException("Missing search options.")); break;
                 case "searchCancel": _session.Search.DiscardPreview(); break;
                 case "searchVerify": _session.Search.Verify(); break;
@@ -177,7 +175,7 @@ namespace Igtap.Tas.Runtime
         }
         public void Publish(PlayerStatsMonitor stats)
         {
-            if (!Connected || Time.realtimeSinceStartupAsDouble < _nextSample) return;
+            if (!SampleDue) return;
             using var timing = _session.Profiler.Measure(ProfileSection.DesktopSnapshot);
             _nextSample = Time.realtimeSinceStartupAsDouble + .1;
             try
@@ -203,20 +201,16 @@ namespace Igtap.Tas.Runtime
                     AchievedSpeed = _session.Performance.AchievedSpeed, PerformanceError = _session.Performance.Error.Length > 0 ? _session.Performance.Error : _session.Profiler.Error,
                     Rerecords = _session.Movie.Rerecords, Speed = _session.Speed, Active = _session.Active, Paused = _session.Frozen,
                     MainMenu = _session.IsMainMenu, CanEdit = _session.CanEdit, CanState = _session.CanSaveState && !_session.HasPendingEdits,
-                    CanTransport = !_session.Search.Busy && !_session.Search.PlacingGoal && !_session.SearchPreview && !_session.Audit.Running && !_session.HasPendingEdits && _session.Active && (_session.Mode == SessionMode.Recording || _session.Mode == SessionMode.Playback),
+                    CanTransport = !_session.Search.Busy && !_session.SearchPreview && !_session.Audit.Running && !_session.HasPendingEdits && _session.Active && (_session.Mode == SessionMode.Recording || _session.Mode == SessionMode.Playback),
                     AuditRunning = _session.Audit.Running, AuditResult = _session.Audit.Result,
                     Dirty = _session.Dirty, Authored = _session.UseAuthoredInput, Movies = _movies, States = _states, Page = page,
                     SelectedInput = new FrameRow { X = _session.AuthoredInput.X, Y = _session.AuthoredInput.Y,
                         Jump = _session.AuthoredInput.Down(Buttons.Jump), Dash = _session.AuthoredInput.Down(Buttons.Dash), Reset = _session.AuthoredInput.Down(Buttons.Reset), Menu = _session.AuthoredInput.Down(Buttons.Menu) },
-                    Timeline = editorMovie.Frames.Skip(page).Take(200).Select((f, i) => new FrameRow {
-                        Frame = page + i, Pus = f.FixedTicks >= 0 ? f.FixedTicks : f.PreviousFixedTicks,
-                        PuTimingPending = f.FixedTicks < 0 && f.PreviousFixedTicks >= 0,
-                        X = f.Input.X, Y = f.Input.Y, Jump = f.Input.Down(Buttons.Jump) || f.Input.Down(Buttons.Jump2),
-                        Dash = f.Input.Down(Buttons.Dash) || f.Input.Down(Buttons.Dash2), Reset = f.Input.Down(Buttons.Reset), Menu = f.Input.Down(Buttons.Menu), Verified = f.Expected != null
-                    }).ToArray(),
+                    Timeline = TimelinePage(editorMovie,page),
                     Prediction = stats.Prediction?.Explanation ?? stats.Message,
                     Search = new SearchView { Options = _session.Search.Options.Copy(), Result = _session.Search.Result.Copy(),
-                        CameraBindings = _session.Search.CameraBindings.Copy(), Busy = _session.Search.Busy, PlacingGoal = _session.Search.PlacingGoal,
+                        Geometry=_session.Search.MapGeometry,MapRevision=_session.Search.MapRevision,Player=_session.Search.MapPlayer,
+                        Busy = _session.Search.Busy,
                         CanStart = _session.Search.CanStart, CanAccept = _session.Search.CanAccept, Preview = _session.SearchPreview },
                     InputSource = stats.InputSource
                 };
@@ -236,6 +230,19 @@ namespace Igtap.Tas.Runtime
         private static StatRow Row(string label, float value, float? next) => new StatRow {
             Name = label, Current = value.ToString("0.000", CultureInfo.InvariantCulture), Next = next?.ToString("0.000", CultureInfo.InvariantCulture) ?? "--"
         };
+        private static FrameRow[] TimelinePage(Movie movie,int page)
+        {
+            var rows=new FrameRow[Math.Min(200,movie.Frames.Count-page)];
+            for(int i=0;i<rows.Length;i++)
+            {
+                var f=movie.Frames[page+i];
+                rows[i]=new FrameRow {Frame=page+i,Pus=f.FixedTicks>=0?f.FixedTicks:f.PreviousFixedTicks,
+                    PuTimingPending=f.FixedTicks<0 && f.PreviousFixedTicks>=0,X=f.Input.X,Y=f.Input.Y,
+                    Jump=f.Input.Down(Buttons.Jump|Buttons.Jump2),Dash=f.Input.Down(Buttons.Dash|Buttons.Dash2),
+                    Reset=f.Input.Down(Buttons.Reset),Menu=f.Input.Down(Buttons.Menu),Verified=f.Expected!=null};
+            }
+            return rows;
+        }
         private void ObserveMovie(bool preserveUndo = false)
         {
             if (ReferenceEquals(_observed, _session.EditorMovie)) return;

@@ -56,6 +56,15 @@ internal static class CoroutineSnapshotTests
         var matrix = Array.CreateInstance(typeof(object), new[] { 2, 1 }, new[] { -1, 3 }); matrix.SetValue(token, -1, 3); closure.External = matrix;
         var matrixCopy = (Array)((Iterator)CoroutineSnapshot.Copy(roots[0], External)).State.External;
         Check(matrixCopy.GetLowerBound(0) == -1 && ReferenceEquals(matrixCopy.GetValue(-1, 3), token), "Multidimensional coroutine arrays preserve bounds and object references.");
+        var vectorArray=new Coordinates[]{new Coordinates{X=BitConverter.Int32BitsToSingle(unchecked((int)0x80000000)),Y=float.NaN}};
+        closure.External=vectorArray;
+        var vectorCopy=(Coordinates[])((Iterator)CoroutineSnapshot.Copy(roots[0],External)).State.External;
+        Check(!ReferenceEquals(vectorArray,vectorCopy) && BitConverter.SingleToInt32Bits(vectorCopy[0].X)==unchecked((int)0x80000000) && float.IsNaN(vectorCopy[0].Y),"Value-only arrays clone without losing exact floating-point bits.");
+        vectorCopy[0].X=42;
+        Check(BitConverter.SingleToInt32Bits(vectorArray[0].X)==unchecked((int)0x80000000),"The value-array fast path remains isolated from saved branches.");
+        var referenced=new Referenced[]{new Referenced{Value=closure}};closure.External=referenced;
+        var referencedCopy=(Referenced[])((Iterator)CoroutineSnapshot.Copy(roots[0],External)).State.External;
+        Check(!ReferenceEquals(referencedCopy[0].Value,closure) && ReferenceEquals(referencedCopy[0].Value.External,referencedCopy),"Struct arrays containing references still deep-copy their aliased graph.");
         closure.External = new List<int> { 1 };
         bool rejected = false;
         try { CoroutineSnapshot.Copy(roots[0], External); } catch (NotSupportedException) { rejected = true; }
@@ -63,4 +72,6 @@ internal static class CoroutineSnapshotTests
         Console.WriteLine("Coroutine snapshot checks passed: " + checks);
     }
     private sealed class Token { }
+    private struct Coordinates { public float X,Y; }
+    private struct Referenced { public Closure Value; }
 }

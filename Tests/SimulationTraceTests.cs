@@ -13,6 +13,7 @@ internal static class SimulationTraceTests
     private struct Point { public float x,y; public Point(float x,float y) {this.x=x;this.y=y;} }
     private sealed class Pose { public Point position {get;set;} public Point localPosition {get;set;} }
     private sealed class Body { public Point position {get;set;} public Point linearVelocity {get;set;} }
+    private sealed class ScalarProbe {public float F;public double D;public bool B;public object Ignored;}
     private sealed class Mover
     {
         private readonly Body body;
@@ -47,6 +48,11 @@ internal static class SimulationTraceTests
         Check(ReferenceEquals(capturedBody,body),"Mover observation returns its own body for host-specific sleep observation.");
         Check(moverFields["mover/42/position/x"]=="80000000" && moverFields["mover/42/body/x"]=="3f800000","Rendered and physical poses remain separate, including signed zero.");
         Check(moverFields["mover/42/local-position/y"]=="40800000" && moverFields["mover/42/velocity/x"]=="c0e00000" && moverFields["mover/42/reset"]=="True","Local pose, velocity and internal mover state share one witness.");
+        var scalar=new ScalarProbe{F=BitConverter.Int32BitsToSingle(unchecked((int)0x80000000)),D=double.Epsilon,B=true,Ignored=new object()};
+        var scalarFields=new System.Collections.Generic.SortedDictionary<string,string>();SimulationFieldCapture.AddScript(scalarFields,scalar,"probe");
+        Check(scalarFields.Count==3 && scalarFields["probe/F"]=="80000000" && scalarFields["probe/D"]==SimulationTraceComparer.Double(double.Epsilon),"Cached field schemas preserve exact scalar bits and omit unsupported references.");
+        scalar.F=2;scalar.B=false;SimulationFieldCapture.AddScript(scalarFields,scalar,"probe");
+        Check(scalarFields["probe/F"]=="40000000" && scalarFields["probe/B"]=="False","Cached metadata always reads current values rather than caching observations.");
         var orb = new Orb(); var orbFields = new System.Collections.Generic.SortedDictionary<string, string>();
         SimulationFieldCapture.AddOrb(orbFields, orb, 42);
         Check(orbFields["orb/42/cooldown"] == "40000000" && orbFields["orb/42/usable"] == "False", "Orb cooldown bits and usability are observed directly.");
@@ -69,6 +75,11 @@ internal static class SimulationTraceTests
         b = Trace(); var input = b.Inputs[0]; input.Press = Buttons.None; b.Inputs[0] = input;
         Check(!SimulationTraceComparer.Compare(a, b).Passed, "Same held input with different edges is a different experiment.");
         Check(SimulationTraceComparer.Float(0f) != SimulationTraceComparer.Float(BitConverter.ToSingle(BitConverter.GetBytes(unchecked((int)0x80000000)), 0)), "Signed zeros stay distinct.");
+        foreach(int bits in new[]{0,int.MinValue,1,-1,0x7f800000,unchecked((int)0xff800000),0x7fc01234,unchecked((int)0xffc04321)})
+        {
+            float value=BitConverter.Int32BitsToSingle(bits);
+            Check(SimulationTraceComparer.Float(value)==BitConverter.ToInt32(BitConverter.GetBytes(value),0).ToString("x8",System.Globalization.CultureInfo.InvariantCulture),"Allocation-free float witnesses retain legacy bits, including infinities and NaN payloads.");
+        }
         a = Trace(); b = Trace(); a.Samples.Clear(); b.Samples.Clear();
         Check(!SimulationTraceComparer.Compare(a, b).Passed, "Empty traces do not pass.");
         a = Trace(); a.StartPhase = double.PositiveInfinity;

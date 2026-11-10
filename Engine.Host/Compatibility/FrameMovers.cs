@@ -15,6 +15,19 @@ namespace IGTAP.EngineSim
     }
     public sealed partial class Simulation
     {
+        public void ConfigureStudioBodyPoses(System.Text.Json.JsonElement definition)
+        {
+            // Unity interpolation separates render transforms from physical
+            // body poses. The world loader constructs at the render pose;
+            // restore the independently exported body pose before frame zero.
+            foreach(var node in definition.GetProperty("objects").EnumerateArray())
+            foreach(var component in node.GetProperty("components").EnumerateArray())
+            {
+                if(component.GetProperty("type").GetString()!="UnityEngine.Rigidbody2D" || !component.TryGetProperty("props",out var props))continue;
+                if(!(World.Objects[component.GetProperty("id").GetInt32()] is Rigidbody2D body) || body.gameObject==Player.gameObject)continue;
+                Physics.StudioLoadBodyPose(body,props);
+            }
+        }
         private MoverFrameState[] _studioMovers = Array.Empty<MoverFrameState>();
         private readonly Dictionary<Rigidbody2D, int> _studioMoverIndex = new Dictionary<Rigidbody2D, int>();
         private void ConfigureStudioMovers(bool interpolate)
@@ -105,6 +118,16 @@ namespace IGTAP.EngineSim
     }
     public sealed partial class PhysicsWorld
     {
+        public void StudioLoadBodyPose(Rigidbody2D body,System.Text.Json.JsonElement props)
+        {
+            if(!_bodies.TryGetValue(body,out var state) || !props.TryGetProperty("position",out var position))return;
+            var p=World.Vec2(position);
+            float angle=props.GetProperty("rotation").GetSingle()*(MathF.PI/180f);
+            state.Body.SetTransform(new Box2D.b2Vec2(p.x,p.y),angle);
+            if(props.TryGetProperty("linearVelocity",out var velocity)){var v=World.Vec2(velocity);state.Body.SetLinearVelocity(new Box2D.b2Vec2(v.x,v.y));}
+            if(props.TryGetProperty("angularVelocity",out var angular))state.Body.SetAngularVelocity(angular.GetSingle()*(MathF.PI/180f));
+            state.TransformDirty=false;
+        }
         public Action<Rigidbody2D> StudioBeforeBodySync, StudioBodyPoseWritten;
         public bool StudioBodyTransformDirty(Rigidbody2D body) => State(body).TransformDirty;
         public bool StudioBodyAwake(Rigidbody2D body) => State(body).Body.IsAwake();

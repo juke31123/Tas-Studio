@@ -1,3 +1,252 @@
+# Version 0.17.0 checkpoint budgets and map editing
+
+All 549 standalone and 2,836 workspace checks pass. New coverage includes the
+global target-plus-allowance ceiling, a fresh timer for each checkpoint, full
+state handoff, lookahead restoring hidden state and physics clocks, and Beam/chain
+staged searches. Cancellation before or after a committed checkpoint never
+exposes an incomplete route for acceptance. Native-window checks cover the
+budget controls, enabling rules, map placement, drag/drop, Escape cancellation
+and middle-button panning without advancing or changing the recording.
+
+A controlled 280 FPS Cashloop capture covers frames [0,230). All 313 native
+samples match the external simulator; restore and shuffled-worker checks pass.
+Beam and Wave each search three ordered checkpoints using three seconds per
+checkpoint, 12-frame lookahead, a one-frame target and a 70-frame allowance.
+Both produce 59-frame routes which pass in-game verification. Beam performs
+36,756 preview frames and Wave 180,375; neither commits preview frames. Accepting
+stages a draft while preserving the original movie. The test restores the
+installed DLL and confirms the original saved progress is unchanged.
+
+This validates a short three-point section and state restoration, not globally
+optimal route choice or every possible map interaction. Lookahead uses three
+continuation policies and an estimated-distance score. Per-checkpoint mode makes
+greedy stage choices; whole-route search remains available.
+
+## Version 0.16.1 input durations
+
+All 534 standalone and 2,814 workspace checks pass. Input runs carry an explicit
+zero-based start, positive duration and full logical sample. FrameCount must
+match both the duration sum and per-frame verification count. Tests reject gaps,
+overlaps, missing runs/verification rows, non-positive or oversized durations,
+missing total counts and per-frame input overrides. Exact press/hold/release
+boundaries, repeated same-frame taps, signed-zero axes and authored rows round-trip.
+
+All nine current-format named files from 0.16.0 retain identical expanded
+canonical fingerprints after conversion to duration storage. Their combined size
+falls from 12,530,246 to 11,626,219 bytes, another 7.2% smaller. The substantial
+recordings save 7-8%; empty/single-frame movies gain a few bytes of count metadata.
+Cashloop stores 5,694 logical inputs as 78 runs, whose durations sum to 5,694.
+Every per-frame verification row and movement hash is retained.
+
+The native driver reads the duration-encoded Cashloop reference and matches all
+1,087 samples across the first 800 frames, with branch and shuffled-worker checks
+passing. A saved v2 movie reloads with the same canonical fingerprint. Continuous
+and frame-stepped native playback each match 800 frames and 144 PUs. The installed
+DLL is restored afterward and saved game progress is unchanged. The in-memory
+timeline and playback/physics code continue to consume ordinary individual frames.
+
+## Version 0.16.0 compact movie storage
+
+All 515 standalone and 2,795 workspace checks pass. Storage tests retain exact
+edges/retaps, inferred inputs, authored rows, all player flags, distinct body and
+render velocities, movement-field changes/removals, world changes/removals,
+negative zero, subnormal values and finite float extremes. Invalid layouts,
+missing hashes, malformed compressed witnesses and trailing JSON are rejected.
+Native engine snapshots/traces keep their existing fields.
+
+All nine supported named movies in the local movies folder round-trip to compact
+copies with identical expanded canonical fingerprints. Sources remain untouched
+during comparison. Combined size falls from 86,928,433 to 12,530,246 bytes
+(85.6% smaller). The five substantial recordings measure:
+
+| Run | Before MiB | After MiB | Typical lines/frame | Maximum |
+| --- | ---: | ---: | ---: | ---: |
+| Cashloop | 15.75 | 2.27 | 11 | 13 |
+| Springs | 20.92 | 3.21 | 12 | 14 |
+| Test24 | 20.13 | 3.01 | 11 | 14 |
+| Test30 | 13.25 | 1.98 | 12 | 13 |
+| Test31 | 8.08 | 1.14 | 11 | 13 |
+
+The starting-world payload is retained, gzip-compressed instead of expanded into
+thousands of path/value lines. Related values share tuples; repeated movement
+fields and periodic world values use deltas. Loading restores their full values
+and the existing comparison tolerances. Every per-frame movement hash and its
+movement-field inputs remains intact. Canonical source/cache fingerprints sort
+dictionary keys, avoiding culture/order differences, and stream JSON into SHA-256
+without allocating a full expanded JSON string and UTF-8 copy.
+
+The native driver reads a converted Cashloop reference, records 2,825 frames and
+matches all 3,836 before/after-PU/frame samples, with branch and shuffled-worker
+checks passing. Beam and Wave each find a 28-frame three-checkpoint candidate,
+pass native verification and stage a draft. A freshly saved compact movie is then
+reloaded with the same canonical fingerprint and audited in the real game:
+continuous and frame-stepped passes both complete 2,826 frames and 506 PUs, with
+all player and periodic world checks matching. The one additional saved frame is
+the frame completed before the capture driver's queued pause. The controlled
+driver restores the installed DLL and confirms game saves are unchanged.
+
+This validates the storage roundtrip and tested playback/search paths; it does
+not expand the simulator's mechanic coverage. See [file storage](FILE-STORAGE.md).
+
+## Version 0.15.0 ordered checkpoints and CashPerLoop
+
+All 487 standalone and 2,767 workspace checks pass. New tests cover ordered and
+out-of-order circle visits, overlapping goals, checkpoint branch ownership and
+restore, turnback routes, Beam refinement, native start-boundary counting and
+the same-process checkpoint map's edit/reorder controls without recording input.
+Prepared-host compatibility checks pass all 27 assertions.
+
+The supplied `Cashloop.tas.json` recording at 280 FPS matches all 7,729 native
+samples across 5,694 frames, including CashPerLoop purchases at frames 2812 and
+5349. Witnesses include local upgrades, mutable CashPerLoop box state, currencies
+and RNG. A stale local-upgrade dictionary in the adapter was exposed and fixed;
+restored branches resynchronize the game objects from the branchable economy.
+Sleeping player bodies retain their physical pose instead of receiving redundant
+interpolation. No expected trace values are injected to obtain agreement.
+
+The post-purchase snapshot at frame 2813 also restores after an intervening
+movement branch and matches all 380 continuation samples through frame 3092.
+
+A fresh 2,825-frame native capture matches all 3,836 samples, with original movie
+witnesses, A/B/A restore and shuffled-worker checks passing. Chain, Beam and Wave
+searches through that purchase section all visit three numbered circles in order,
+pass native playback and stage a draft while retaining the original input suffix.
+Chain finds 36 frames; Beam and Wave find 28 within their 20-second search budgets.
+The controlled driver restores the installed DLL and confirms saved progress is
+unchanged. This is a focused fixture, not certification of all upgrade types.
+Only normal local CashPerLoop single purchases are enabled; buy-max, Vman,
+global CashPerLoop and other upgrades remain guarded.
+
+Offline replay of all nine existing FPS regression fixtures still matches all
+2,040 native samples. Checkpoint completion is evaluated at movie-frame
+boundaries, including frames without PUs; numbered circles constrain one joint
+search rather than separate greedy legs. Results are best found within the
+budget, not proofs of a globally fastest route.
+
+A fresh extracted portable bundle passes first-use game preparation with global
+.NET discovery disabled, setup reuse, generated-cache repair and host checks.
+Its Wave search visits all three Cashloop checkpoints and finds a 28-frame
+candidate. The installed game assembly remains unchanged. The clean archive has
+one `Tas.Studio` root and excludes recordings, local captures and generated game
+assemblies.
+
+## Version 0.14.0 simulation, performance and experimental scheduling
+
+All 444 standalone and 2,720 workspace checks pass, including the native checkbox
+binding through the fake Unity boundary. Prepared-host checks add strict timer
+deadlines, stable callback ordering, cancellation, repeating invokes and reentrant
+dispatch. Snapshot tests retain aliases, cycles, signed zero and value-array
+isolation. Experimental queues execute each task once, respect simulator-thread
+ownership and shut down on cancellation.
+
+Native captures at all nine game FPS values (30, 50, 60, 100, 120, 144, 165, 244,
+280) match all 2,040 samples. Each passes branch restore and shuffled-worker
+checks. The initial run exposed platform body/render rounding at 100/165/244 FPS
+and an early Invoke at 50 FPS. Independent exported body poses and strict timer
+deadlines correct these mismatches; expected observations are never injected
+during replay. These are short movement/jump/dash fixtures, not all-mechanic
+certification at every FPS.
+
+A four-worker experimental Beam run executes 14,586 tasks, steals 841 and
+produces a 377-frame candidate for the existing 395-frame section. It passes
+native playback, draft acceptance and endpoint rebuilding. Its 1,600-frame
+reference matches all 2,167 samples. The controlled test restores the installed
+DLL and confirms saved progress is unchanged. Work stealing remains optional.
+
+The complete supplied spring recording additionally matches all 10,473 samples
+across 7,740 frames. Restores cover pending invokes, dash hitstop, a tracked
+course, active spring lock/cooldown and a pending Transform write at frame 4386.
+Four-worker Beam and Wave each verify an 18-frame spring section from a fresh
+portable package. Native cache/ownership checks include disabled same-frame
+jump/dash taps and detached-node isolation.
+
+One same-frame native measurement reduces world-check time from 24.04 to 20.30 ms
+per call, with identical player and world witness hashes. Stats now sample when
+the 10 Hz desktop snapshot is due, rather than at every game frame. Profiler
+autosaves debounce repeated steps; explicit export and session teardown remain
+immediate. Timeline paging avoids walking the skipped prefix, movie saves stream
+JSON, and live search progress omits repeated input/path arrays. Final results
+and movie writes retain durable atomic replacement.
+
+Live progress is optional: transient I/O or JSON-read failures retain the last
+metrics while the worker runs. Final results remain strictly parsed. A local
+controller failure is saved to `controller-error.json` and cannot be overwritten
+by the worker's subsequent cancellation report. Tests exercise truncated live
+progress, malformed final results and original-error preservation. One native
+startup cancellation was observed before this hardening; its original cause was
+overwritten, so that cause is not claimed as established. The diagnostic Wave
+rerun and subsequent four-worker Beam/Wave repeat both pass.
+
+The 9,300-frame offline replay benchmark reduces measured allocation from 568.2
+to 360.9 bytes/frame. This excludes world loading, trace observers and search
+snapshots. The native Mono allocation counter returns no usable data, so native
+byte estimates are null rather than reported as zero. Timings depend on hardware
+and workload and do not imply that the game will sustain every selected FPS.
+
+Reusing only the adapter's working state reduces its measured 327-frame replay
+allocation from 1,112.9 to 712.9 bytes/frame. Detached archive nodes retain their
+own motion values and immutable histories; native cache checks explicitly verify
+that later steps cannot mutate them. Float witnesses also avoid a temporary
+byte array while preserving signed zero, infinity and NaN payload bits.
+
+In the five-second 280 FPS fixture at Beam width 128, two repeated runs each at
+one, two, four and eight workers produce a 327-frame candidate with one to four
+workers, and 371 frames with eight. Two/four-worker stealing evaluates roughly
+10% more branches than affinity in this sample, with more reconstruction work;
+the candidate length is unchanged. The unseeded goal remains unsolved within
+five seconds. These local measurements support keeping affinity and two workers
+as defaults; they are not a universal scaling or route-quality guarantee.
+
+All six passive ZIPs retain their previous scoped results: both lift captures
+match completely; the inwall captures differ only at their initial contact, and
+the spring-directions capture matches all 19,548 samples from the first spring
+onward. Its earlier tiny body-Y residual remains a strict failure, with 554
+differing samples. No tolerance or observed-state overwrite conceals that gap.
+
+# Version 0.13.0 Beam search improvements
+
+All 413 standalone checks and 2,681 workspace checks pass. The workspace session
+checks use fake Unity boundaries. New Beam checks cover detours away from the
+goal, slow motion within archive position buckets, single-frame jump windows
+between PUs, exact same-frame press/release events, route refinement, preview
+reuse, cancellation and worker ownership. The gameplay Recorder still builds.
+
+The native host additionally passes 36 cache checks with a deliberately small
+256 KiB retained budget: eviction/reconstruction, full captured-state A/B/A
+restoration, identical continuation, repeated-history restoration and rejection
+of foreign simulator/thread snapshot tokens. The normal target is 64 MiB of
+estimated retained snapshots per worker, excluding roots, active temporary
+tokens, histories and the worlds/runtime. This is not a whole-process RAM limit.
+
+In the actual Unity/Mono game at the recording's 280 FPS and 50 Hz physics,
+Beam found a 377-frame candidate for the supplied 395-frame section. Native
+playback reached the goal with the selected ability limits. Acceptance staged
+a draft and retained the original inputs; Save edits rebuilt the endpoint.
+The reference capture matched all 2,167 samples across 1,600 frames, and native
+branch restoration and shuffled-worker checks passed. The controlled test
+restored the installed mod DLL and confirmed saved progress was unchanged.
+
+A second native run starts from a fresh extracted portable package and exercises
+the mod's background first-use preparation. Beam and Wave both produce
+18-frame spring-contact candidates that pass native playback and draft
+acceptance. The 3,100-frame reference has 4,195 matching samples. This checks
+the new snapshot path against an interaction rather than only free movement.
+
+The same offline comparison fixture used before the change was repeated with
+280 FPS, a 397-frame horizon, two workers and a five-second budget. Seeded Beam
+improved from the previous 394-frame result to 327 frames; Wave found 332 in
+that run. Without a seed, Beam explored to depth 228 rather than the previous
+10; neither solver reached this goal within five seconds. The 327-frame result
+is an offline candidate, separate from the native-verified results above.
+Wall-time budgets and parallel exploration vary between runs. This one fixture
+does not show that Beam always beats Wave or establishes a general speedup.
+
+A fresh portable ZIP passes all 400 declared tool-file hashes and excludes
+generated game assemblies and personal data. First-use setup, reuse and cache
+repair work with global .NET discovery disabled; host compatibility and Wave
+search also pass. These checks establish packaging and the exercised sections,
+not universal mechanic parity, exhaustive search or global route optimality.
+
 # Version 0.12.2 search label cleanup
 
 The search selector and current documentation use **Beam search**,

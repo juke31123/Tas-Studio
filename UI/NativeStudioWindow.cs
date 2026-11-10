@@ -36,6 +36,7 @@ namespace Igtap.Tas.UI
         private NativeFrameEditor _editor;
         private NativeBruteforceWindow _bruteforce;
         internal IntPtr BruteforceHandle => _bruteforce?.Handle ?? IntPtr.Zero;
+        internal IntPtr CheckpointMapHandle=>_bruteforce?.MapHandle??IntPtr.Zero;
         internal IntPtr EditorHandle => _editor?.Handle ?? IntPtr.Zero;
         private const uint Child = 0x50000000, TabStop = 0x10000;
         private const uint Back = NativeTheme.Back, Fore = NativeTheme.Text;
@@ -72,7 +73,7 @@ namespace Igtap.Tas.UI
                     Instance = instance, Cursor = N.LoadCursor(IntPtr.Zero, new IntPtr(32512)), Background = _background, Name = className };
                 if (N.RegisterClassEx(ref wc) == 0) throw new Win32Exception(Marshal.GetLastWin32Error());
                 registered = true;
-                IntPtr hwnd = N.CreateWindowEx(0, className, "Tas Studio 0.12.0 - in-game process", 0x02CF0000,
+                IntPtr hwnd = N.CreateWindowEx(0, className, "Tas Studio - Controls", 0x02CF0000,
                     _visible ? unchecked((int)0x80000000) : -30000, _visible ? unchecked((int)0x80000000) : -30000,
                     980, 850, IntPtr.Zero, IntPtr.Zero, instance, IntPtr.Zero);
                 if (hwnd == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
@@ -89,8 +90,8 @@ namespace Igtap.Tas.UI
                 int result;
                 while ((result = N.GetMessage(out var message, IntPtr.Zero, 0, 0)) > 0)
                 {
-                    if (_bruteforce != null && _bruteforce.ProcessKey(ref message)) continue;
                     if (_editor != null && _editor.ProcessKey(ref message)) continue;
+                    if (_bruteforce != null && _bruteforce.ProcessKey(ref message)) continue;
                     // Local shortcuts only. Ignore repeats, editor chords and text entry.
                     if (message.Id == 0x100 || message.Id == 0x104)
                     {
@@ -112,7 +113,9 @@ namespace Igtap.Tas.UI
                         if (shortcut >= 0) continue;
                     }
                     var searchHandle = _bruteforce?.Handle ?? IntPtr.Zero;
-                    var dialog = searchHandle != IntPtr.Zero && (message.Hwnd == searchHandle || N.IsChild(searchHandle, message.Hwnd)) ? searchHandle : hwnd;
+                    var mapHandle = _bruteforce?.MapHandle ?? IntPtr.Zero;
+                    var dialog = mapHandle!=IntPtr.Zero&&(message.Hwnd==mapHandle||N.IsChild(mapHandle,message.Hwnd))?mapHandle:
+                        searchHandle != IntPtr.Zero && (message.Hwnd == searchHandle || N.IsChild(searchHandle, message.Hwnd)) ? searchHandle : hwnd;
                     if (!N.IsDialogMessage(dialog, ref message))
                     { N.TranslateMessage(ref message); N.DispatchMessage(ref message); }
                 }

@@ -33,12 +33,12 @@ namespace Igtap.Tas.Runtime
             if (origin != null) position -= (Vector2)origin.currentOrigin;
             return new MotionVector(position.x, position.y);
         }
-        public static void Capture(TasSession session, SearchJob job)
+        public static void Capture(TasSession session, SearchJob job,bool mapOnly=false)
         {
             var player = session.Adapter.Player;
             var motion = PlayerTelemetry.Capture(player, session.MovementTimers, out var parameters);
             var body = player.GetComponent<Rigidbody2D>();
-            if (player.pauseMenu?.menuOpen == true || player.GamePaused || motion.Dead || motion.Dashing || motion.Cutscene != 0)
+            if (!mapOnly && (player.pauseMenu?.menuOpen == true || player.GamePaused || motion.Dead || motion.Dashing || motion.Cutscene != 0))
                 throw new NotSupportedException("The initial external simulator needs an alive, unpaused player outside a cutscene or dash.");
             var origin = UnityEngine.Object.FindFirstObjectByType<FloatingOrigin>();
             Vector2 shift = origin == null ? Vector2.zero : (Vector2)origin.currentOrigin;
@@ -51,7 +51,7 @@ namespace Igtap.Tas.Runtime
             motion.Position = new MotionVector(body.position.x - shift.x, body.position.y - shift.y);
             job.Start = new SearchState { Player = motion, Previous = session.CurrentInput, Phase = session.PuPhase,
                 Pus = session.PuCount, Time = session.LogicalTime, Scale = session.PreviewTimeScale };
-            if (job.Start.Scale != 1) throw new NotSupportedException("The initial external simulator requires normal game timeScale at the start frame.");
+            if (!mapOnly && job.Start.Scale != 1) throw new NotSupportedException("The initial external simulator requires normal game timeScale at the start frame.");
             job.Parameters = parameters; job.MaxDashes = player.maxAirDashes; job.MaxAirJumps = player.maxAirJumps;
             job.WallJumpUnlocked = player.wallJumpUnlocked; job.OmniDashUnlocked = player.omniDashUnlocked;
             var shapes = new List<SearchBody>();
@@ -114,7 +114,7 @@ namespace Igtap.Tas.Runtime
                 "Moving platforms, arbitrary polygon/composite shapes and unknown triggers stop affected rollouts.",
                 "Known course/checkpoint/camera/clone-visibility triggers are omitted from movement exploration; their economy/camera/RNG effects are not simulated.",
                 "All candidates require native goal verification; no glitch simulation yet." };
-            job.Validate();
+            if(!mapOnly)job.Validate();
         }
         private static bool NonMovementTrigger(Collider2D collider)
         {

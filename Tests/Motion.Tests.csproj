@@ -5,13 +5,14 @@
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="Program.cs;MotionTests.cs;../Core/PlayerMotion.cs;../Core/MovementPredictor.cs;../Core/Movie.cs;../Core/SimulationTimers.cs;../Core/Savestate.cs;../Core/MovieStore.cs;../Core/TasStartSetup.cs" />
+    <Compile Include="Program.cs;MotionTests.cs;../Core/PlayerMotion.cs;../Core/MovementPredictor.cs;../Core/Movie.cs;../Core/MovieJson.cs;../Core/SimulationTimers.cs;../Core/Savestate.cs;../Core/MovieStore.cs;../Core/TasStartSetup.cs" />
 
     <Compile Include="FrameCellTests.cs;../Core/FrameCellEdit.cs;../Core/Timeline.cs" />
     <Compile Include="FrameTimingTests.cs;../Core/FrameTiming.cs" />
     <Compile Include="PerformanceTests.cs;../Core/PerformanceTrace.cs" />
     <Compile Include="ReliabilityTests.cs;../Core/EditHistory.cs;../Core/DraftJournal.cs;../Core/FrameProfiler.cs;../Core/RebuildCheckpoints.cs" />
-    <Compile Include="SearchTests.cs;../Core/Search/**/*.cs;../Core/Keybinds.cs" />
+    <Compile Include="MovieStorageTests.cs;../Core/CanonicalDictionaryJson.cs" />
+    <Compile Include="SearchTests.cs;BeamSearchTests.cs;CheckpointTests.cs;CheckpointBudgetTests.cs;../Core/Search/**/*.cs;../Core/Keybinds.cs" />
     <Compile Include="SimulationTraceTests.cs;../Core/Simulation/**/*.cs" />
     <Compile Include="AnimationTimelineTests.cs" />
     <Compile Include="CoroutineSnapshotTests.cs" />

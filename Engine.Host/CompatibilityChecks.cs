@@ -56,6 +56,7 @@ internal static class CompatibilityChecks
         Check(released.Held==0 && released.Release==5,"Releasing a movie-frame input retains both jump and dash edges.");
         bool rejected=false;try{IGTAP.EngineSim.Simulation.StudioSearchInput(new IGTAP.EngineSim.InputTick{dashJump=3},default);}catch(NotSupportedException){rejected=true;}
         Check(rejected,"Upstream macro-tick technique offsets must not silently become movie frames.");
+        checks+=IGTAP.EngineSim.Simulation.StudioSchedulerChecks();
         Console.WriteLine("Prepared-host compatibility checks passed: "+checks); return 0;
     }
 }

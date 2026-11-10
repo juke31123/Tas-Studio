@@ -910,7 +910,7 @@ namespace Igtap.Tas.Runtime
         private void RequireIdle() { RequireNoPendingEdits(); if (Active) throw new InvalidOperationException("Stop the active session first."); }
         private void RequireRunning()
         {
-            if (SearchPreview || _searchMustRebuild || Search?.Busy == true || Search?.PlacingGoal == true)
+            if (SearchPreview || _searchMustRebuild || Search?.Busy == true)
                 throw new InvalidOperationException("Finish or cancel the brute-force operation before advancing the TAS.");
             if (Audit.Running) throw new InvalidOperationException("Replay verification controls transport. Stop to cancel it first.");
             RequireNoPendingEdits();
@@ -919,7 +919,6 @@ namespace Igtap.Tas.Runtime
         private void Hotkeys()
         {
             if (SuppressHotkeys || !Application.isFocused) return;
-            if (Search?.PlacingGoal == true) return;
             if (TasHotkeys.Pressed(Bindings, TasShortcut.Editors) || TasHotkeys.Pressed(Bindings, TasShortcut.Stats)) DesktopPageRequest = 0;
             if (TasHotkeys.Pressed(Bindings, TasShortcut.Savestates)) DesktopPageRequest = 3;
             if (TasHotkeys.Pressed(Bindings, TasShortcut.Stop) && Active) Queue(Stop);
@@ -929,7 +928,7 @@ namespace Igtap.Tas.Runtime
         }
         private void Release()
         {
-            Search?.GoalPlacement?.End(); _searchSeek = false;
+            _searchSeek = false;
             _menuToggleRequested = false;
             _stepPu = false; _puStepFrames = 0;
             Performance.Finish("released");
