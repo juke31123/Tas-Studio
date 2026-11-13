@@ -79,6 +79,9 @@ namespace Igtap.Tas.UI
         [DllImport("user32.dll")] internal static extern bool KillTimer(IntPtr hwnd, UIntPtr id);
         [DllImport("user32.dll")] internal static extern IntPtr LoadCursor(IntPtr instance, IntPtr name);
         [DllImport("user32.dll")] internal static extern uint GetDpiForWindow(IntPtr hwnd);
+        [DllImport("user32.dll")] internal static extern int GetSystemMetricsForDpi(int index, uint dpi);
+        [DllImport("user32.dll", SetLastError = true)] internal static extern IntPtr CreateIconFromResourceEx(byte[] data, uint size, bool icon, uint version, int width, int height, uint flags);
+        [DllImport("user32.dll")] internal static extern bool DestroyIcon(IntPtr icon);
         [DllImport("user32.dll")] internal static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
         [DllImport("user32.dll")] internal static extern IntPtr GetFocus();
         [DllImport("user32.dll")] internal static extern bool IsChild(IntPtr parent, IntPtr child);

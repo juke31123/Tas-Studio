@@ -43,6 +43,19 @@ namespace Igtap.Tas.Runtime
             // This is the same field Movement.load assigns from _currentZone in
             // playerdata.txt, set before Movement.Start calls ZoneLoader.LoadZone.
             Singleton<ZoneLoader>.Instance.activeZone = setup.ZoneToLoad;
+            ApplyAbilities(player,setup);
+            ConfigureVman(setup);
+            player.respawnPoint = position;
+            player.courseResetPoint = Vector2.zero;
+            player.transform.position = new Vector3(position.x, position.y, player.transform.position.z);
+            var body = player.GetComponent<Rigidbody2D>();
+            if (body == null) throw new InvalidOperationException("The selected player has no physics body.");
+            body.position = position; body.linearVelocity = Vector2.zero;
+            player.Velocity = player.momentum = Vector2.zero;
+            player.cam.setup(position, player.cam.camSize);
+        }
+        internal static void ApplyAbilities(Movement player,TasStartSetup setup)
+        {
             ApplyWorldUpgrades(player.gameObject.scene, setup);
             player.wallJumpUnlocked = setup.WallJump;
             player.doubleJumpUnlocked = setup.DoubleJump;
@@ -54,14 +67,17 @@ namespace Igtap.Tas.Runtime
             player.maxAirDashes = setup.Dash ? setup.AirDashes : 0;
             player.airJumpsLeft = player.maxAirJumps;
             player.airDashesLeft = player.maxAirDashes;
-            player.respawnPoint = position;
-            player.courseResetPoint = Vector2.zero;
-            player.transform.position = new Vector3(position.x, position.y, player.transform.position.z);
-            var body = player.GetComponent<Rigidbody2D>();
-            if (body == null) throw new InvalidOperationException("The selected player has no physics body.");
-            body.position = position; body.linearVelocity = Vector2.zero;
-            player.Velocity = player.momentum = Vector2.zero;
-            player.cam.setup(position, player.cam.camSize);
+        }
+        private static void ConfigureVman(TasStartSetup setup)
+        {
+            VmanScript.isCurrentlyVman=setup.VmanMode!=0;VmanScript.metaVman=false;
+            VmanScript.vmanScore=0;VmanScript.vmanTimeLeft=0;
+            if(setup.VmanMode==0)return;
+            double duration=setup.VmanMode==2?-2:setup.VmanSeconds-1;
+            globalStats.globalUpgradeDict[globalStats.globalUpgradeSet.vmanTime]=duration;
+            VmanScript.VmanStatingUpgrades=new System.Collections.Generic.Dictionary<globalStats.globalUpgradeSet,double>{{globalStats.globalUpgradeSet.vmanTime,duration}};
+            var owner=Singleton<VmanScript>.Instance??throw new InvalidOperationException("The VMAN controller is unavailable.");
+            (typeof(VmanScript).GetMethod("OnEnteredVmanSpeedrun",Fields)??throw new MissingMethodException("VmanScript.OnEnteredVmanSpeedrun")).Invoke(owner,null);
         }
         private static void ApplyWorldUpgrades(Scene scene, TasStartSetup setup)
         {

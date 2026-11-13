@@ -5,6 +5,30 @@ Current UI (0.8.0): these controls live in the desktop Studio, opened automatica
 
 Press **F10** to open the desktop player stats. It shows scene-space physics-body position, X/Y velocity in game units per second, speed, movement state and remaining air jumps/dashes. Controller velocity and momentum are shown separately because IGTAP combines those with platform motion before setting the body's velocity. Grounded, jumping/rising, falling, airborne/apex, wall sliding, dashing and dead are distinguished. Pause does not erase the player's movement state.
 
+## Action readiness
+
+**Can jump** and **Can dash** show current-state checks and, since 0.19.4,
+readiness after the selected next frame.
+Jump readiness shows `Yes (ground)`, `Yes (wall)`, `Yes (air)`, `Yes (dash)` or
+`Yes (hyper)`; only `Yes (air)` spends the extra air-jump charge. Blocked actions
+show a short reason such as `No (rising)`, `No (empty)`, `No (cooldown)` or
+`No (wall lock)`. A failed wall-jump branch does not fall through to an air jump.
+Native menu/hitstop, death and special control locks are respected; pausing the
+TAS editor alone does not disable readiness.
+
+These checks mean a fresh press under the sampled/predicted conditions. Holding
+an already-held button is not another press. The **Next Frame** column evaluates
+the future state after that frame's selected inputs: a spent air jump or dash
+charge, an expired cooldown and a changed rising-velocity threshold can produce
+different current/next values. Frames without a PU preserve PU-driven counters.
+
+The game-code trajectory backend exports readiness from each private simulated
+frame, including its future unlocks, wall-jump charges, hyper state, menu and
+hitstop flags. The lightweight fallback retains its unchanged-contact assumptions
+and withholds game-menu transitions. Unavailable forecasts or missing readiness
+metadata show `--`; they never copy current readiness into the next column.
+Current readiness remains visible independently of forecast availability.
+
 ## Next frame estimate
 
 The right column is a calculated estimate, not a saved future frame. It uses selected authored input during authored recording, the next recorded input during playback, or held physical controls otherwise. The input assumption is displayed. TAS pause previews a resumed/stepped frame using the saved simulation scale; changing the viewing speed does not change the simulated timestep.
@@ -18,10 +42,11 @@ The first backend models ordinary horizontal acceleration/braking, gravity and f
 ## Extension points
 
 - `Core/PlayerMotion.cs`: detached scalar/vector snapshots, movement parameters, state classification, and `IMotionPredictor` contract.
+- `Core/PlayerActions.cs`: side-effect-free current jump/dash readiness. Extra UI-only context stays outside serialized movie/search movement state.
 - `Core/MovementPredictor.cs`: pure one-frame calculation. It copies the input snapshot, never changes live state, and returns either an estimated next snapshot or an explicit unsupported reason.
 - `Runtime/PlayerTelemetry.cs`: field mappings for the installed game; reads body values and private controller values. Field lookup failures disable optional telemetry rather than aborting recording.
 - `Runtime/PlayerStatsMonitor.cs`: captures one sample at the PostLateUpdate boundary after the TAS session, chooses inputs and timing, and caches data for the UI. It does not advance input, physics, timers, RNG or movies.
-- `UI/PlayerStatsWindow.cs`: presentation only. Future hitbox/trajectory rendering can use the same snapshots and replace the predictor backend with one that understands collision geometry and world state.
+- `Runtime/DesktopBridge.cs` and `UI/NativeTheme.cs`: detached stats rows and native desktop presentation.
 
 Do not call live `Physics2D.Simulate` or the real player's movement methods to generate previews: they can mutate gameplay, and simulating physics alone does not execute the movement controller. Keep unsupported cases explicit as the backend expands. See Unity's [physics simulation documentation](https://docs.unity3d.com/6000.0/Documentation/ScriptReference/Physics2D.Simulate.html) and [fixed-update timing](https://docs.unity3d.com/6000.0/Documentation/Manual/fixed-updates.html).
 

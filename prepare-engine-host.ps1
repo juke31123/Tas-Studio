@@ -123,6 +123,12 @@ foreach($old in @($fixtureGuard,$messageGuard)) {
     if (($physics.Split([string[]]@($old),[StringSplitOptions]::None).Length-1) -ne 1) { throw "Unexpected lifecycle guard surface: $old" }
 }
 $physics=$physics.Replace($fixtureGuard,'            StudioCheckGeometry(s);' + "`n" + $fixtureGuard).Replace($messageGuard,'                _sim.StudioCheckMessage(handlers[i].script, argument);' + "`n" + $messageGuard)
+$dispatch='                handlers[i].call(argument);'
+if (($physics.Split([string[]]@($dispatch),[StringSplitOptions]::None).Length-1) -ne 1) { throw 'Unexpected callback dispatch surface.' }
+$physics=$physics.Replace($dispatch,'                StudioMessage?.Invoke(handlers[i].script, message, argument, false);' + "`n" + $dispatch + "`n" + '                StudioMessage?.Invoke(handlers[i].script, message, argument, true);')
+$externalGuard='            CollectPlayerTouch();'
+if (($physics.Split([string[]]@($externalGuard),[StringSplitOptions]::None).Length-1) -ne 1) { throw 'Unexpected custom-map contact guard surface.' }
+$physics=$physics.Replace($externalGuard,$externalGuard+"`n"+'            StudioCheckExternalContacts();')
 $initialBuild='                Rebuild(state);'
 if (($physics.Split([string[]]@($initialBuild),[StringSplitOptions]::None).Length-1) -ne 1) { throw 'Unexpected initial fixture registration surface.' }
 # The supported TAS bootstrap registers terrain before actors. Resource object
@@ -151,7 +157,39 @@ $contactManager=[IO.File]::ReadAllText($contactManagerPath)
 $contactInsert='            // Insert into the world, at the end (see m_contactList).'
 if(($contactManager.Split([string[]]@($contactInsert),[StringSplitOptions]::None).Length-1) -ne 1) {throw 'Unexpected new-contact wake surface.'}
 $contactManager=$contactManager.Replace($contactInsert,"            if (!fixtureA.IsSensor() && !fixtureB.IsSensor()) { bodyA.SetAwake(true); bodyB.SetAwake(true); }`n"+$contactInsert)
+$contactStart=$contactManager.IndexOf($contactInsert,[StringComparison]::Ordinal)
+$contactEnd=$contactManager.IndexOf('            // Connect to island graph.',$contactStart,[StringComparison]::Ordinal)
+if($contactEnd -le $contactStart){throw 'Unexpected world contact insertion surface.'}
+# Native rendered-frame terrain contacts are visited newest first. The
+# reference turbo host appends them, which changes the first contact returned
+# to Movement.OnCollisionStay2D at composite corners.
+$contactHead=@'
+            // Insert at the head; retain both ends for removal and snapshots.
+            c.m_prev = null;
+            c.m_next = m_contactList;
+            if (m_contactList != null) m_contactList.m_prev = c;
+            else m_contactTail = c;
+            m_contactList = c;
+
+'@
+$contactTail=$contactManager.Substring($contactStart,$contactEnd-$contactStart)
+$contactManager=$contactManager.Substring(0,$contactStart)+"            if (StudioNewestFirst) {`n"+$contactHead+"`n            } else {`n"+$contactTail+"            }`n"+$contactManager.Substring($contactEnd)
+$contactField='        public b2Contact m_contactList;'
+if(($contactManager.Split([string[]]@($contactField),[StringSplitOptions]::None).Length-1) -ne 1){throw 'Unexpected contact policy surface.'}
+$contactManager=$contactManager.Replace($contactField,$contactField+"`n"+'        public bool StudioNewestFirst;')
 [IO.File]::WriteAllText($contactManagerPath,$contactManager)
+$worldPath=Join-Path $cache 'enginesim\Runtime\World.cs'
+$world=[IO.File]::ReadAllText($worldPath)
+foreach($old in @('        public float FixedDeltaTime;','            Time.fixedDeltaTime = FixedDeltaTime;')){
+    if(($world.Split([string[]]@($old),[StringSplitOptions]::None).Length-1) -ne 1){throw 'Unexpected custom-map physics metadata surface.'}
+}
+$world=$world.Replace('        public float FixedDeltaTime;','        public float FixedDeltaTime; public bool StudioCustomMap;').Replace('            Time.fixedDeltaTime = FixedDeltaTime;','            Time.fixedDeltaTime = FixedDeltaTime; StudioCustomMap = root.TryGetProperty("customMap", out _);')
+[IO.File]::WriteAllText($worldPath,$world)
+$physics=[IO.File]::ReadAllText($physicsPath)
+$continuous='            _b2.SetContinuousPhysics(true);'
+if(($physics.Split([string[]]@($continuous),[StringSplitOptions]::None).Length-1) -ne 1){throw 'Unexpected custom-map contact policy initialization.'}
+$physics=$physics.Replace($continuous,$continuous+"`n"+'            _b2.m_contactManager.StudioNewestFirst = world.StudioCustomMap;')
+[IO.File]::WriteAllText($physicsPath,$physics)
 $treePath=Join-Path $cache 'enginesim\Box2D\src\Collision\DynamicTree.cs'
 $tree=[IO.File]::ReadAllText($treePath)
 $treeStart=$tree.IndexOf("`t`t`tif (treeAabb.Contains(aabb))",[StringComparison]::Ordinal)

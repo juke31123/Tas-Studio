@@ -52,8 +52,9 @@ namespace Igtap.Tas.Core
         public string Explanation { get; }
         public int PhysicsTicks { get; }
         public float FrameSeconds { get; }
-        public MotionPrediction(PlayerMotion next, string explanation, int ticks, float seconds)
-        { Next = next; Explanation = explanation; PhysicsTicks = ticks; FrameSeconds = seconds; }
+        public PlayerActionAvailability Actions { get; }
+        public MotionPrediction(PlayerMotion next, string explanation, int ticks, float seconds, PlayerActionAvailability actions = null)
+        { Next = next; Explanation = explanation; PhysicsTicks = ticks; FrameSeconds = seconds; Actions = next == null ? null : actions; }
     }
 
     public interface IMotionPredictor

@@ -84,11 +84,20 @@ namespace Igtap.Tas.Core.Simulation
             if (!Finite(delta) || !Finite(speed) || delta < 0 || speed < 0) throw new ArgumentException("Invalid animation clock.");
             if (_states[_state.Parameter].Hash != target.Hash)
             {
+                // Unity evaluates the outgoing clip's final event interval even
+                // when an instantaneous transition enters its destination at
+                // time zero. Dropping that interval loses a footstep (and the
+                // shared RNG draws it makes) when a jump interrupts running.
+                Advance(_states[_state.Parameter], speed, delta, emit);
                 _state = new AnimationTimelineState { Parameter = target.Parameter };
                 foreach (var signal in target.Events) if (signal.Time == 0) emit?.Invoke(signal);
                 return; // Native zero-duration transitions enter at time zero.
             }
             _state.Parameter = target.Parameter;
+            _state.Time = Advance(target, speed, delta, emit);
+        }
+        private float Advance(SimulationAnimationState target, float speed, float delta, Action<SimulationAnimationEvent> emit)
+        {
             float before = _state.Time, advance = delta * speed * target.Speed;
             float after = before + advance;
             if (!Finite(after)) throw new InvalidOperationException("Animation clock overflow.");
@@ -104,7 +113,7 @@ namespace Igtap.Tas.Core.Simulation
                         if (due > before && due <= after) emit?.Invoke(signal);
                     }
             }
-            _state.Time = after;
+            return after;
         }
     }
 }

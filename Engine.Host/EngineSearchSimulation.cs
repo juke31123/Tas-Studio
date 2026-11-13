@@ -43,7 +43,9 @@ internal sealed class EngineSearchSimulation : IBranchSearchSimulation
     private long _cacheBytes, _cacheHits, _cacheReplays, _replayFrames, _replayPus;
     private readonly Func<bool> _cancel;
     private static readonly FieldInfo JumpBuffer = Field("jumpBuffer"), JumpCut = Field("jumpCutBuffer"), DashBuffer = Field("dashBuffer"),
-        RecentJump = Field("recentlyJumped"), WallCoyote = Field("wallCoyoteFrames"), DashFrames = Field("dashFramesRemaining");
+        RecentJump = Field("recentlyJumped"), WallCoyote = Field("wallCoyoteFrames"), DashFrames = Field("dashFramesRemaining"),
+        NormalJump = Field("MostRecentUpwardsMoveWasNormalJump"), DashBounce = Field("DashBounceFrames"), CanHyper = Field("canHyper"),
+        DashDirection = Field("dashDirection"), PlatformCoyote = Field("movingPlatformCoyote"), FinalCling = Field("isFinalWallClingActive");
     private static FieldInfo Field(string name) => typeof(Movement).GetField(name, BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic)
         ?? throw new MissingFieldException("Movement", name);
     private readonly FieldInfo _dead=typeof(Movement).GetField("isDead",BindingFlags.Instance|BindingFlags.NonPublic);
@@ -53,22 +55,31 @@ internal sealed class EngineSearchSimulation : IBranchSearchSimulation
     private string _policyFailure;
     public SearchState State { get; private set; }
     internal Simulation Native => _simulation;
+    internal PlayerActionAvailability PreviewActions()
+    {
+        var p=_simulation.Player;
+        var motion=State.Player;
+        return PlayerActionAvailability.Evaluate(motion,new MovementParameters {
+            DoubleJumpUnlocked=p.doubleJumpUnlocked,DashUnlocked=p.dashUnlocked,
+            MaxWallCoyoteFrames=p.maxWallCoyoteFrames,WallJumpLockFrames=p.wallJumpMovementLockFrames
+        },new PlayerActionContext {MenuOpen=p.pauseMenu==null || p.pauseMenu.menuOpen,GamePaused=p.GamePaused,
+            WallJumpUnlocked=p.wallJumpUnlocked,WallJumps=p.wallJumpsLeft,CanHyper=(bool)CanHyper.GetValue(p)});
+    }
+    internal int NativePhysicsResiduals {get;private set;}
+    internal int RecoveredContactSamples {get;private set;}
+    internal int AdditionalVelocityResiduals {get;private set;}
     public SearchCacheStatistics CacheStatistics => new SearchCacheStatistics(_cacheHits,_cacheReplays,_replayFrames,_cacheBytes,_replayPus);
     public EngineSearchSimulation(SearchJob job,string directory,SimulationTrace prefix,Func<bool> cancel,long cacheBudget=64L*1024*1024)
     {
         if(cacheBudget<0) throw new ArgumentOutOfRangeException(nameof(cacheBudget));
         _cacheBudget=cacheBudget; _job=job; _cancel=cancel; _simulation=EngineFixture.Load(directory,prefix);
-        int observed=0;
+        using var definition=JsonDocument.Parse(File.ReadAllText(Path.Combine(directory,"world.json")));
+        bool customMap=definition.RootElement.TryGetProperty("customMap",out _);
+        var validator=new NativePrefixValidator(prefix.Samples,customMap);
         void Match(SimulationSample actual)
         {
-            if(observed>=prefix.Samples.Count) throw new InvalidDataException("Native prefix witness is incomplete.");
-            var expected=prefix.Samples[observed++];
-            if(actual.Frame!=expected.Frame || actual.Pu!=expected.Pu || actual.Phase!=expected.Phase || actual.Fields.Count!=expected.Fields.Count ||
-                expected.Fields.Any(p => !actual.Fields.TryGetValue(p.Key,out string value) || value!=p.Value))
-            {
-                var field=expected.Fields.FirstOrDefault(p => !actual.Fields.TryGetValue(p.Key,out string value) || value!=p.Value).Key;
-                throw new InvalidDataException("Native search prefix differs at frame " + actual.Frame + " (" + (field ?? "sample schedule") + ").");
-            }
+            validator.Match(actual,-50f*UnityEngine.Time.fixedDeltaTime*_simulation.Player.gravity,
+                _simulation.Physics.PlayerTouch.Ceiling || _simulation.Player.onGround);
         }
         Match(EngineFixture.Sample(_simulation,0,0,"start",prefix.CaptureOrbs,prefix.CaptureMovers,prefix.CaptureSprings,prefix.CaptureUpgrades));
         int frame=0;
@@ -78,11 +89,16 @@ internal sealed class EngineSearchSimulation : IBranchSearchSimulation
             for(;frame<prefix.Inputs.Count;frame++)
             {
                 if((frame&127)==0 && cancel()) throw new OperationCanceledException("Search cancelled while reconstructing the native prefix.");
+                if(prefix.PreparedNextFrames.Count!=0)_simulation.ConfigureStudioEndPacing(prefix.PreparedNextFrames[frame]);
                 _simulation.StepStudioFrame(EngineFixture.Input(prefix.Inputs[frame],frame==0 ? prefix.Previous : prefix.Inputs[frame-1]));
             }
         }
         finally { _simulation.StudioSample=null; }
-        if(observed!=prefix.Samples.Count) throw new InvalidDataException("Unconsumed native prefix samples.");
+        validator.Complete();
+        _simulation.ConfigureStudioEndPacing(prefix.AdvanceMode=="continuous");
+        NativePhysicsResiduals=validator.PhysicsResiduals;
+        RecoveredContactSamples=validator.RecoveredContactSamples;
+        AdditionalVelocityResiduals=validator.AdditionalVelocityResiduals;
         using(var world=JsonDocument.Parse(File.ReadAllText(Path.Combine(directory,"world.json")))) _simulation.ConfigureStudioSearchGuards(world.RootElement,prefix.CaptureSprings,prefix.CaptureUpgrades);
         _simulation.StudioAfterMovement=ObserveResources;
         _root=_simulation.CaptureStudioState();
@@ -112,12 +128,19 @@ internal sealed class EngineSearchSimulation : IBranchSearchSimulation
         var motion=State.Player;
         motion.Position=new MotionVector(body.px-origin.x,body.py-origin.y);motion.Velocity=new MotionVector(body.vx,body.vy);
         motion.Momentum=new MotionVector(p.momentum.x,p.momentum.y);motion.Grounded=p.onGround;motion.Dashing=p.dashActive;
+        motion.ControlVelocity=new MotionVector(p.Velocity.x,p.Velocity.y);motion.PlatformVelocity=new MotionVector(p.movingPlatformVelocity.x,p.movingPlatformVelocity.y);
+        motion.FramesSinceDash=p.framesSinceLastDash;
         motion.OnWall=p.OnWall;motion.FacingRight=p.facingRight;motion.Cutscene=(int)p.cutsceneMode;
         motion.JumpBuffered=(bool)JumpBuffer.GetValue(p);motion.JumpCutBuffered=(bool)JumpCut.GetValue(p);motion.DashBuffered=(bool)DashBuffer.GetValue(p);
         motion.RecentlyJumped=(bool)RecentJump.GetValue(p);motion.WallCoyoteFrames=(float)WallCoyote.GetValue(p);
         motion.DashFramesRemaining=(float)DashFrames.GetValue(p);motion.DashCooldown=p.dashCooldown;
         motion.WallJumpLock=p.wallJumpMovementLockRemaining;motion.WallJumpDirection=p.wallJumpDirection;
-        motion.AirDashes=p.airDashesLeft;motion.AirJumps=p.airJumpsLeft;motion.Dead=!Resources().Alive;motion.PhysicsSimulated=true;
+        motion.AirDashes=p.airDashesLeft;motion.AirJumps=p.airJumpsLeft;motion.Dead=!Resources().Alive;
+        motion.PhysicsSimulated=p.GetComponent<UnityEngine.Rigidbody2D>().simulated;
+        motion.NormalJump=(bool)NormalJump.GetValue(p);motion.DashBounceFrames=(int)DashBounce.GetValue(p);
+        var direction=(UnityEngine.Vector2)DashDirection.GetValue(p);motion.DashDirection=new MotionVector(direction.x,direction.y);
+        motion.OnMovingPlatform=p.currentlyTouchedMovingPlatform!=null || (float)PlatformCoyote.GetValue(p)>0;
+        motion.FinalWallCling=(bool)FinalCling.GetValue(p);
     }
     public void Restore(SearchState snapshot)
     {
@@ -188,6 +211,32 @@ internal sealed class EngineSearchSimulation : IBranchSearchSimulation
         CheckThread();
         if (!StepNative(input,State.Previous,abilities,out unsupported)) return false;
         _history=new History(_history,input,_job.Id); _historyValid=true;ReadState(input); Remember(_history); return true;
+    }
+    private sealed class PreviewBranch
+    {
+        internal EngineSearchSimulation Owner;
+        internal StudioSnapshot Snapshot;
+        internal FrameInput Previous;
+    }
+    // Preview never enters the search history/cache or its ability policy.
+    // Resets, menus and death/respawn frames are real recorded inputs too.
+    internal object CapturePreview()
+    {
+        CheckThread();
+        return new PreviewBranch { Owner=this, Snapshot=_simulation.CaptureStudioState(), Previous=State.Previous };
+    }
+    internal void RestorePreview(object token)
+    {
+        CheckThread();
+        if (!(token is PreviewBranch branch) || !ReferenceEquals(branch.Owner,this)) throw new InvalidOperationException("Preview snapshots belong to their creating simulator.");
+        _simulation.RestoreStudioState(branch.Snapshot); _historyValid=false; _observing=false;
+        ReadState(branch.Previous);
+    }
+    internal bool StepPreview(FrameInput input, out string unsupported)
+    {
+        CheckThread(); unsupported=null; _historyValid=false; _observing=false;
+        try { _simulation.ConfigureStudioEndPacing(false); _simulation.StepStudioFrame(EngineFixture.Input(input,State.Previous)); ReadState(input); return true; }
+        catch (NotSupportedException error) { unsupported=error.Message; return false; }
     }
     internal bool StepNative(FrameInput input,FrameInput previous,SearchAbilities abilities,out string unsupported)
     {

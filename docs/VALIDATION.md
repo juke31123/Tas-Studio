@@ -1,4 +1,230 @@
-# Version 0.17.0 checkpoint budgets and map editing
+# Version 0.19.4 next-frame action readiness
+
+Both action rows now populate **Next Frame** from the predicted future state.
+The fallback evaluates its detached next motion with its unchanged-contact
+assumptions. The game-code preview exports immutable readiness alongside each
+future trajectory point, using future unlocks, wall-jump charges, hyper/menu/
+hitstop flags and native movement fields. This metadata is separate from
+serialized movie/search movement state. Missing or unavailable forecast metadata
+is shown as `--`; current readiness is never substituted for a missing forecast.
+
+Tests cover air-jump charge consumption, rising-speed eligibility changes,
+cooldown expiry, zero-PU frames, JSON transport, current/future context separation,
+stale-value clearing and desktop table delivery. The fallback withholds menu
+transitions rather than claiming that the next frame remains controllable.
+
+The persistent game-code host matches future action readiness reconstructed from
+native trace fields for 190 frames across 13 forecasts at 50 FPS, with branch
+rollback, prefix rewinds and wrong-state rejection. A separate origin-only
+16-frame forecast at 280 FPS matches readiness and motion through zero-PU frames
+and passes rollback/wrong-state checks. The older longer 280 FPS fixture still
+rejects a historical `clock/capture-ticks` witness during prefix requests; its
+full history is not reported as passing this update's checks.
+
+# Version 0.19.3 jump and dash readiness
+
+The player stats table adds current **Can jump** and **Can dash** rows. Jump
+readiness labels the resource/type, including the extra air jump. The evaluation
+reads the existing motion sample and separate UI-only unlock/menu/wall context;
+it does not add fields to serialized movement/search state. The next-frame
+readiness cells deliberately remain unavailable. Small desktop layouts use the
+existing compact font to fit the additional rows.
+
+All 655 standalone and 2,967 workspace checks pass. Pure checks cover
+ground/wall/air priority, exhausted wall attempts that block
+air-jump fallback, internal-velocity ascent boundaries at 200/700, strict dash
+cooldown and wall-lock boundaries, queued-dash priority, hyper/dash-jump gates,
+unlock/charge limits and menu/hitstop/death/physics locks. Workspace checks cover
+desktop row delivery and clearing/loading/paused lifecycle behavior.
+
+A temporary native observer checks 86 calls to the game's normal input-consumer
+method, including one ground jump, one extra air jump and one dash. Readiness and
+the reported air-jump resource agree with actual input/charge consumption. A
+separate replay without the observers reproduces all 100 recorded frame probes;
+all 293 phase samples match its external trace, and restore/shuffled-worker
+checks pass. This is distinct from the initial stepped fixture's stricter phase
+comparison, which reports a body-position difference before PU 69; that initial
+fixture is not claimed as full external parity. All 32 save files remain
+unchanged after both controlled processes exit. Wall/hyper readiness is covered
+by source-based pure checks here, not a new native wall/hyper validation claim.
+
+# Version 0.19.2 Cold search-prefix reconstruction
+
+The user's `Cold Bruteforce test` records 401 frames at 100 FPS. Five failed
+search jobs stopped at frame 35, independently of search algorithm or selected
+start. A temporary native probe identifies a composite-contact order difference:
+the first native contact is diagonal while the external host reports an axial
+ceiling contact, changing `Movement.OnCollisionStay2D`'s vertical-velocity clear.
+Custom worlds now use newest-first world-contact visitation. The vanilla-world
+policy is unchanged. Dependency edits are reproduced by the pinned preparation
+script, not maintained only in the ignored build cache.
+
+The 386-frame captured search prefix reaches the native anchor with all fields
+passing the normal start-state checks. Two samples at frames 85-86 have a
+remaining transient contact clear that resolves at the following PU. The new
+prefix validator accepts only this zero-versus-one-gravity-step case without a
+recent jump or vertical momentum, while requiring solid contact, matching
+positions throughout and the usual complete final witness. Intermediate
+vertical contact-solver remainders have a separate 0.001 bound. No simulated
+state is overwritten from the witness. Mutation checks reject position, RNG,
+currency, unrelated movement, jump/momentum, missing-contact, duration, schedule,
+incomplete-witness and final-anchor differences. This is a limited recovery
+policy, not a claim of exact custom-map contact simulation.
+
+A controlled native replay reproduces the full 401-frame source recording.
+Separate searches on frames 120-140 of that recording run Beam and Wave through
+the real controller and rebuilt host. Both candidates pass native verification;
+acceptance stages a draft and does not modify the source movie. The existing
+strict trace comparator still reports custom-map body float residuals, starting
+at frame 31; this is not reported as full external trace parity. Branch restore
+passes. All 32 saved files remain unchanged after the controlled processes exit.
+
+All 625 standalone and 2,931 workspace checks pass. A fresh extracted portable
+bundle passes first-use preparation without global .NET discovery, cache repair,
+wrong-map rejection, and both algorithms on the Cold job. The installed update
+replaces only the 401 Bruteforce files, retaining the 0.19.1 runtime and manifest
+so the source recording's mod fingerprint stays valid. The full 0.19.2 ZIP is a
+separate build for new recordings. TAS data, saved progress and the recorded mod
+fingerprint are unchanged by the solver-only installation.
+
+Regression traces remain bit exact: 1,485 zipper samples, 3,617 refill samples,
+4,195 spring samples and 3,836 purchase samples. The `prefix-check <job.json>`
+developer command validates reconstruction without running a search or writing
+over the job's result. Frame-end-only diagnostic witnesses now retain their
+sample schedule in trace and restore checks.
+
+# Version 0.19.1 trajectory control stability and profiling
+
+Native-window regression checks delay game-side command processing while old
+snapshots refresh repeatedly. Enable/disable clicks remain visible until their
+acknowledgment; unapplied length edits survive refreshes, including turning off
+with an unfinished edit. The snapshot-refresh command preserves the enabled
+preference. The standalone and workspace suites also cover the new profiling
+sections and their reset behavior.
+
+Controlled game tests at 30 and 280 FPS inject an unavailable forecast after a
+valid preview. For more than 2.5 seconds the feature stays enabled and its capture
+count does not increase. Explicit refresh then creates exactly one new capture
+and recovers the preview. Movement forecasts, full native traces, restore and
+shuffled-worker checks pass afterward. A COLD custom-map test repeats these
+checks at 100 FPS: all 33 native samples across 16 frames match exactly.
+World-coordinate comparisons in the probe materialize float32 results before
+comparing them, avoiding Mono's wider intermediate arithmetic at large map
+coordinates; no simulation tolerance is increased. Saved progress stays intact.
+
+The COLD timing result and the limits of the user's old profiler are recorded
+in [the profile review](PERFORMANCE-20261112.md). Renderer buffer reuse and
+unchanged paused uploads are optimized without reducing replay/world checks.
+
+## Version 0.19.0 trajectory preview
+
+The standalone and workspace suites pass with trajectory protocol, held-input,
+timer-deadline, stale-input/position/velocity and next-frame stats checks. The
+native controls test checks that the Preview tab and its controls are present.
+
+Controlled in-game tests at 30 and 280 FPS compare held-input forecasts with
+native body position and velocity. All three frames before the first input
+change at 30 FPS and all 16 at 280 FPS match. The full 16-frame native traces
+match all 67 and 23 native samples respectively, including restore and shuffled
+worker checks. The hidden in-game LineRenderer contains the forecast geometry.
+These are headless checks, not a pixel-level review of the overlay's appearance.
+
+Enabling at frame 30 of a 280 FPS jump, with expensive history collection off
+before enabling, forecasts the following 16 frames correctly. Its full 48-frame
+trace matches all 67 native samples and passes restore/shuffled-worker checks.
+The test compares physics/game fields, movie cursor/frame count and random
+state; Unity's interpolated sprite can settle after pausing and is excluded
+from the side-effect assertion. All 32 saved files remain unchanged after exit.
+
+A persistent-process test on the native 30 FPS capture checks ten forecasts
+across 31 subsequent frames, including jump/dash input changes. Alternate
+hypothetical inputs do not alter a repeated forecast, prefix rewinds work, and
+an intentionally incorrect live-state witness is rejected without corrupting
+the following valid request. Current-frame captures remain explicitly marked
+as estimates; these checks do not claim universal mechanic/glitch parity.
+A second persistent-process test at 280 FPS checks five forecasts across 98
+native frames, including the jump transition and mid-jump prefixes, with the
+same rollback, rewind and incorrect-witness rejection checks.
+
+## Version 0.18.2 continuous Beam refinement
+
+All 577 standalone and 2,870 workspace checks pass. Beam regression checks
+cover improvements over a seeded route, non-increasing best frame counts,
+continued refinement beyond 192 attempts, the full time budget after archive
+exhaustion or a one-frame candidate, and cancellation retaining a complete
+candidate. Ability limits, exact input edges, snapshot ownership, sequential
+checkpoint lookahead and work-stealing cancellation checks continue to pass.
+
+A controlled 280 FPS CortexPistis search uses its full 20-second budget
+(20.001 seconds), evaluating 126,568 candidates with 62,076 refinements. Its
+five-frame candidate passes verification in the native game, and acceptance
+stages only a draft without changing the source movie. All 16 reference frames
+match the recording, branch restore passes and all 32 saved files remain
+unchanged after process exit. The strict external trace/worker comparison still
+reports the previously documented small custom-map body residuals; this is
+not reported as bit-exact agreement. The native candidate verification passes
+independently of that diagnostic.
+
+## Version 0.18.1 live map discovery and capture identity
+
+All 573 standalone and 2,866 workspace checks pass. New checks cover map
+installation after the first catalog scan, loaded-map/revision rejection,
+search-job identity, and checkpoint-map geometry refreshing after the loaded
+context changes. The Studio, Bruteforce and checkpoint-map title bars update
+from the actual loaded context without advancing TAS frames.
+
+A controlled game test opens the real Create New TAS screen, then installs an
+owned temporary map that did not exist at startup. The open menu detects it
+automatically and retains its previous selection. The new map adds a distant
+terrain tile to the prototype. Its actual loaded ID/name, the new tile in the
+geometry capture and the search-job ID/hash are checked in game. Capturing with
+an intentionally wrong map ID is rejected. All 23 native samples across the
+first 16 frames match exactly, with restore and shuffled-worker checks passing.
+The temporary map is removed afterward. All 32 saved files remain unchanged
+after process exit, with no restorations or removals required.
+
+## Version 0.18.0 custom maps and VMAN
+
+All 566 standalone and 2,858 workspace checks pass. New checks cover custom-map
+discovery, stable map/asset identity, changed/missing maps, path validation,
+setup persistence, timed/practice VMAN configuration and isolation of persistent
+VMAN reward preferences. Custom-map prefix residual tests restrict the allowance
+to finite body position/velocity values; ordinary map checks, movement state,
+clocks and larger differences remain strict.
+
+Controlled tests loaded all three installed maps through Navigator's real builder:
+Cold (1,150 objects), CortexPistis.exe v0.2 (29,795) and Endurance Y emo 2 (6,883).
+Endurance's first 16 frames match all 23 native samples exactly, including branch
+restore and shuffled workers. Cold's first 48 frames match all 67 native samples
+exactly. In timed VMAN, Beam and Wave each find an 18-frame custom-map route and
+pass verification in IGTAP. Saved-file reload plus continuous and frame-stepped
+native playback pass.
+
+CortexPistis exposes rebuilt-tile native body residuals as small as two float ULPs
+in position and about 0.000003 in velocity. Its strict diagnostic trace reports
+these differences. With the documented custom-map-only 0.0001 prefix allowance,
+Beam and Wave reconstruct frame 8 and each find a five-frame route that passes
+native verification. The report marks NativePrefixMatchedExactly=false and counts
+the residual fields. Saved-file reload and both native playback modes pass.
+
+A full 280-frame Cold jump trace has eight samples with small body-velocity
+residuals, while every other captured field matches. These measurements are not
+reported as bit-exact agreement. The simulator never applies the allowance to
+movie hashes, movement-state witnesses or game-side candidate verification.
+
+VMAN practice matches all 375 native samples across 280 frames, including its
+count-up timer, with A/B/A, pending-invoke, hitstop, active-course and observer
+restore checks passing. Timed VMAN's native clock also matches in the Cold tests.
+All controlled runs restore the installed DLL and preserve saved progress.
+A final isolation test starts with Navigator remembering an older map. Its
+save owner is cleared before loading and after stopping; all 32 saved files
+remain identical after process shutdown, with zero restorations or removals.
+The controlled-test script now backs up Savedata folders and checks after exit
+as well as inside the game.
+Custom upgrades/group/area triggers and VMAN purchases still require dedicated
+adapters/validation; affected search branches are guarded. See CUSTOM-MAPS.md.
+
+## Version 0.17.0 checkpoint budgets and map editing
 
 All 549 standalone and 2,836 workspace checks pass. New coverage includes the
 global target-plus-allowance ceiling, a fresh timer for each checkpoint, full

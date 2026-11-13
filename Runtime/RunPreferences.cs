@@ -20,13 +20,13 @@ namespace Igtap.Tas.Runtime
             _present = movie.AtomDoorPresent; _value = movie.AtomDoorValue; _active = true;
         }
         public static void End() { _active = false; }
-        public static bool HasKey(string key) => _active && key == AtomDoor ? _present : PlayerPrefs.HasKey(key);
+        public static bool HasKey(string key) => _active&&key=="VmanCoursesCompleteTemp"?false:_active && key == AtomDoor ? _present : PlayerPrefs.HasKey(key);
         public static int GetInt(string key) => GetInt(key, 0);
-        public static int GetInt(string key, int fallback) => _active && key == AtomDoor ? _present ? _value : fallback : PlayerPrefs.GetInt(key, fallback);
+        public static int GetInt(string key, int fallback) => _active&&key=="VmanCoursesCompleteTemp"?fallback:_active && key == AtomDoor ? _present ? _value : fallback : PlayerPrefs.GetInt(key, fallback);
         public static void SetInt(string key, int value)
-        { if (_active && key == AtomDoor) { _present = true; _value = value; } else PlayerPrefs.SetInt(key, value); }
+        { if(_active&&key=="VmanCoursesCompleteTemp")return;if (_active && key == AtomDoor) { _present = true; _value = value; } else PlayerPrefs.SetInt(key, value); }
         public static void DeleteKey(string key)
-        { if (_active && key == AtomDoor) { _present = false; _value = 0; } else PlayerPrefs.DeleteKey(key); }
+        { if(_active&&key=="VmanCoursesCompleteTemp")return;if (_active && key == AtomDoor) { _present = false; _value = 0; } else PlayerPrefs.DeleteKey(key); }
         public static void Capture(WorldWitness witness)
         {
             witness.Exact["preferences/OpenA2Door/present"] = HasKey(AtomDoor).ToString();

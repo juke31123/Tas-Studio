@@ -39,6 +39,10 @@ namespace Igtap.Tas.DesktopModel
         public FrameRow SelectedInput = new FrameRow();
         public StatRow[] Stats = Array.Empty<StatRow>();
         public string Prediction = "", InputSource = "";
+        public bool TrajectoryEnabled;
+        public int TrajectoryFrames = 280;
+        public string TrajectoryStatus = "";
+        public string LoadedMap="",LoadedMapKey="";
         public int FramesUntilPu = -1;
         public long Pus;
         public SearchView Search = new SearchView();
@@ -60,6 +64,7 @@ namespace Igtap.Tas.DesktopModel
         public SearchBody[] Geometry=Array.Empty<SearchBody>();
         public MotionVector Player;
         public int MapRevision;
+        public string CapturedMapKey="";
     }
 
 }

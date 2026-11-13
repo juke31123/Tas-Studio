@@ -12,6 +12,7 @@ namespace Igtap.Tas.Runtime
         private readonly IMotionPredictor _predictor;
         public PlayerMotion Current { get; private set; }
         public MotionPrediction Prediction { get; private set; }
+        public PlayerActionAvailability Actions { get; private set; }
         public FrameInput Input { get; private set; }
         public string InputSource { get; private set; }
         public string Message { get; private set; } = "Waiting for a player sample.";
@@ -21,7 +22,7 @@ namespace Igtap.Tas.Runtime
 
         public void Refresh(TasSession session, bool force = false)
         {
-            Current = null; Prediction = null; Input = default; InputSource = "Unavailable";
+            Current = null; Prediction = null; Actions = null; Input = default; InputSource = "Unavailable";
             if (!force) return;
             if (session.IsMainMenu) { Message = "Enter a gameplay scene to inspect the player."; return; }
             if (session.WaitingForLoad || session.Mode == SessionMode.Warmup)
@@ -33,18 +34,11 @@ namespace Igtap.Tas.Runtime
                 if ((!session.Active && !session.Adapter.Bind()) || !session.Adapter.IsAlive)
                 { Message = "No active player is available."; return; }
                 Current = PlayerTelemetry.Capture(session.Adapter.Player, session.Active ? session.MovementTimers : null, out var parameters);
+                var actionContext=PlayerTelemetry.ActionContext(session.Adapter.Player);
+                Actions = PlayerActionAvailability.Evaluate(Current, parameters, actionContext);
                 MovieFrame = session.Cursor; InTas = session.Active;
                 FrameInput previous = session.Active ? session.CurrentInput : session.Adapter.ReadPhysicalInput();
-                if (session.Mode == SessionMode.Playback && session.Cursor < session.Movie.Frames.Count)
-                { Input = session.Movie.Frames[session.Cursor].Input; InputSource = "Next recorded input"; }
-                else if (session.Active && session.DiagnosticNeutralInput)
-                { Input = default; InputSource = "Neutral diagnostic input"; }
-                else if (session.Mode == SessionMode.Recording && session.UseTimelineInput && session.Cursor < session.Movie.Frames.Count)
-                { Input = session.Movie.Frames[session.Cursor].Input; InputSource = "Next timeline input"; }
-                else if (session.Mode == SessionMode.Recording && session.UseAuthoredInput)
-                { Input = session.AuthoredInput; InputSource = "Selected frame input"; }
-                else
-                { Input = session.Adapter.ReadPhysicalInput(); InputSource = "Hold current physical controls"; }
+                Input = session.PreviewInput(out string source); InputSource = source;
 
                 float scale = session.PreviewTimeScale;
                 float frameSeconds = session.Active ? session.StepSeconds * scale : Time.unscaledDeltaTime * scale;
@@ -59,7 +53,16 @@ namespace Igtap.Tas.Runtime
                     Prediction = new MotionPrediction(null, "Game pause/hitstop is active; the next advancing frame is unknown.", 0, 0);
                 else if (session.Adapter.Player.pauseMenu != null && session.Adapter.Player.pauseMenu.menuOpen)
                     Prediction = new MotionPrediction(null, "Close the game menu to predict movement.", 0, 0);
-                else Prediction = _predictor.Predict(Current, parameters, Input, previous, frameSeconds, fixedSeconds, remainder);
+                else
+                {
+                    var forecast=_predictor.Predict(Current, parameters, Input, previous, frameSeconds, fixedSeconds, remainder);
+                    Prediction=forecast?.Available==true ? new MotionPrediction(forecast.Next,forecast.Explanation,forecast.PhysicsTicks,forecast.FrameSeconds,
+                        forecast.Actions ?? PlayerActionAvailability.Evaluate(forecast.Next,parameters,actionContext)) : forecast;
+                }
+                if (session.Active && session.Trajectory?.Enabled == true && scale > 0 &&
+                    session.Mode != SessionMode.Complete && session.Mode != SessionMode.Desync &&
+                    !session.Adapter.Player.GamePaused && session.Adapter.Player.pauseMenu?.menuOpen != true)
+                    Prediction = session.Trajectory.Predict(Current, Input, MovieFrame);
                 Message = session.Active ? "Next TAS frame estimate (as if resumed/stepped)." : "Next rendered frame estimate using the current frame duration. Native timer expiry is not modeled outside TAS.";
             }
             catch (Exception error)

@@ -10,6 +10,8 @@ namespace Igtap.Tas.Core.Simulation
     // irrelevant because Unity types belong to different assemblies there.
     public static class SimulationFieldCapture
     {
+        public static void AddVman(IDictionary<string,string> fields,double time,double score)
+        {fields["vman/time"]=SimulationTraceComparer.Double(time);fields["vman/score"]=SimulationTraceComparer.Double(score);}
         private const BindingFlags InstanceFields=BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic;
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<(Type,string),FieldInfo> Fields=new System.Collections.Concurrent.ConcurrentDictionary<(Type,string),FieldInfo>();
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<(Type,string),PropertyInfo> Properties=new System.Collections.Concurrent.ConcurrentDictionary<(Type,string),PropertyInfo>();

@@ -5,20 +5,21 @@ using Newtonsoft.Json;
 
 namespace Igtap.Tas.Core
 {
-    public enum ProfileSection { Session, Input, PlayerProbe, WorldProbe, DesktopCommands, DesktopSnapshot, PlayerStats, Journal }
+    public enum ProfileSection { Session, Input, PlayerProbe, WorldProbe, DesktopCommands, DesktopSnapshot, PlayerStats, Journal, Trajectory, TrajectoryCapture, TrajectoryDraw, CaptureAnimation, CaptureDiscovery, CaptureGeometry, CaptureMetadata, CaptureWrite }
 
     // Fixed storage, no per-frame lists or disk I/O. Section times are inclusive:
     // PlayerProbe is part of Session and must not be added to it a second time.
     public sealed class FrameProfiler
     {
         public const int Capacity = 4096;
-        private readonly double[,] _sections = new double[Capacity, 8];
+        private static readonly int SectionCount = Enum.GetValues(typeof(ProfileSection)).Length;
+        private readonly double[,] _sections = new double[Capacity, SectionCount];
         private readonly double[] _intervals = new double[Capacity];
         private readonly bool[] _intervalKnown = new bool[Capacity];
         private readonly int[] _pus = new int[Capacity], _gc = new int[Capacity];
-        private readonly double[] _current = new double[8];
-        private readonly double[] _operationTotal = new double[8], _operationMax = new double[8];
-        private readonly long[] _operationCount = new long[8];
+        private readonly double[] _current = new double[SectionCount];
+        private readonly double[] _operationTotal = new double[SectionCount], _operationMax = new double[SectionCount];
+        private readonly long[] _operationCount = new long[SectionCount];
         private long _start;
         private int _pendingInterval = -1;
         private int _count, _write, _gcStart;
@@ -69,7 +70,7 @@ namespace Igtap.Tas.Core
             _open = false;
             _intervalKnown[_write] = false; _pendingInterval = _write;
             _pus[_write] = pus; _gc[_write] = GC.CollectionCount(0) - _gcStart;
-            for (int s = 0; s < 8; s++) _sections[_write, s] = _current[s];
+            for (int s = 0; s < SectionCount; s++) _sections[_write, s] = _current[s];
             _write = (_write + 1) % Capacity; _count = Math.Min(Capacity, _count + 1);
         }
         private object Distribution(Func<int, double> value, Func<int, bool> include = null)
@@ -84,8 +85,8 @@ namespace Igtap.Tas.Core
         {
             var sections = new System.Collections.Generic.Dictionary<string, object>();
             var operations = new System.Collections.Generic.Dictionary<string, object>();
-            for (int s = 0; s < 8; s++) { int index = s; sections[((ProfileSection)s).ToString()] = Distribution(i => _sections[i, index]); }
-            for (int s = 0; s < 8; s++) operations[((ProfileSection)s).ToString()] = new {
+            for (int s = 0; s < SectionCount; s++) { int index = s; sections[((ProfileSection)s).ToString()] = Distribution(i => _sections[i, index]); }
+            for (int s = 0; s < SectionCount; s++) operations[((ProfileSection)s).ToString()] = new {
                 Calls = _operationCount[s], TotalMs = _operationTotal[s], MeanMs = _operationCount[s] == 0 ? 0 : _operationTotal[s] / _operationCount[s], MaxMs = _operationMax[s] };
             int collections = 0; for (int i = 0; i < _count; i++) collections += _gc[i];
             return new { Samples = _count, Capacity, Gen0CollectionsDuringWork = collections,
@@ -104,7 +105,7 @@ namespace Igtap.Tas.Core
         {
             _count = _write = 0; _pendingInterval = -1; _open = false; Error = "";
             _autoSaveAt=double.PositiveInfinity;
-            Array.Clear(_operationCount, 0, 8); Array.Clear(_operationTotal, 0, 8); Array.Clear(_operationMax, 0, 8);
+            Array.Clear(_operationCount, 0, SectionCount); Array.Clear(_operationTotal, 0, SectionCount); Array.Clear(_operationMax, 0, SectionCount);
         }
     }
 }

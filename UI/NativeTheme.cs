@@ -17,6 +17,7 @@ namespace Igtap.Tas.UI
             Accent = 0xC4D14F, Amber = 0x40BDFA, Green = 0x85DB66, Blue = 0xFFA673,
             Red = 0x6661FF, Disabled = 0x796B61, Held = 0x594525;
         private readonly Dictionary<uint, IntPtr> _brushes = new Dictionary<uint, IntPtr>();
+        private readonly NativeWindowIcons _icons = new NativeWindowIcons();
         internal IntPtr Normal, Mono, Title, Small;
         private float _scale;
         public IntPtr Brush(uint color)
@@ -27,11 +28,13 @@ namespace Igtap.Tas.UI
         public void Scale(float scale)
         {
             if (_scale == scale && Normal != IntPtr.Zero) return;
+            _icons.Refresh();
             ClearFonts(); _scale = scale;
             Normal = Font(15, 400, "Segoe UI"); Small = Font(12, 400, "Segoe UI");
             Title = Font(22, 600, "Segoe UI"); Mono = Font(14, 400, "Consolas");
         }
         private IntPtr Font(int size, int weight, string face) => N.CreateFont(-(int)(size * _scale), 0, 0, 0, weight, 0, 0, 0, 1, 0, 0, 5, 0, face);
+        public void WindowIcon(IntPtr hwnd) => _icons.Attach(hwnd);
         public static void DarkTitle(IntPtr hwnd)
         {
             try { int enabled = 1; N.DwmSetWindowAttribute(hwnd, 20, ref enabled, sizeof(int)); }
@@ -106,6 +109,8 @@ namespace Igtap.Tas.UI
             var rect = item.Rect; var dc = item.Dc; N.FillRect(dc, ref rect, Brush(Panel));
             int w = (int)((rect.Right - rect.Left) / _scale), h = (int)((rect.Bottom - rect.Top) / _scale);
             int step = Math.Min(32, (h - 28) / Math.Max(1, s?.Stats.Length ?? 10));
+            var labelFont=step<20 ? Small : Normal;
+            var valueFont=step<20 ? Small : Mono;
             Label(dc, R(rect, 0, 0, w * 42 / 100, 24), "PLAYER", Muted, Small);
             Label(dc, R(rect, w * 42 / 100, 0, w * 28 / 100, 24), "CURRENT", Muted, Small, 0x8826);
             Label(dc, R(rect, w * 72 / 100, 0, w * 28 / 100, 24), "NEXT FRAME", Muted, Small, 0x8826);
@@ -114,9 +119,9 @@ namespace Igtap.Tas.UI
             {
                 var row = s.Stats[i]; int y = 28 + i * step;
                 var line = R(rect, 0, y + step - 1, w, 1); N.FillRect(dc, ref line, Brush(Raised));
-                Label(dc, R(rect, 0, y, w * 42 / 100, step - 1), row.Name, Muted, Normal);
-                Label(dc, R(rect, w * 42 / 100, y, w * 28 / 100, step - 1), row.Current, Text, Mono, 0x8826);
-                Label(dc, R(rect, w * 72 / 100, y, w * 28 / 100, step - 1), row.Next, Accent, Mono, 0x8826);
+                Label(dc, R(rect, 0, y, w * 42 / 100, step - 1), row.Name, Muted, labelFont);
+                Label(dc, R(rect, w * 42 / 100, y, w * 28 / 100, step - 1), row.Current, Text, valueFont, 0x8826);
+                Label(dc, R(rect, w * 72 / 100, y, w * 28 / 100, step - 1), row.Next, Accent, valueFont, 0x8826);
             }
         }
         private void ClearFonts()
@@ -124,6 +129,6 @@ namespace Igtap.Tas.UI
             foreach (var f in new[] { Normal, Mono, Title, Small }) if (f != IntPtr.Zero) N.DeleteObject(f);
             Normal = Mono = Title = Small = IntPtr.Zero;
         }
-        public void Dispose() { ClearFonts(); foreach (var b in _brushes.Values) N.DeleteObject(b); _brushes.Clear(); }
+        public void Dispose() { _icons.Dispose(); ClearFonts(); foreach (var b in _brushes.Values) N.DeleteObject(b); _brushes.Clear(); }
     }
 }

@@ -141,6 +141,15 @@ namespace Igtap.Tas.Core.Search
                     .OrderBy(n => n.Depth).ThenBy(DistanceTo).ThenBy(n => n.Id).Take(8).ToArray();
                 return choices.Length == 0 ? null : choices[random.Next(choices.Length)];
             }
+            internal Node Sample(int beforeFrame, Random random)
+            {
+                var cells = _cells.Values.Where(c => c.Entries.Any(e => e.Node.Depth < beforeFrame)).ToArray();
+                if (cells.Length == 0) return null;
+                var cell = cells[random.Next(cells.Length)];
+                var choices = cell.Entries.Where(e => e.Node.Depth < beforeFrame).ToArray();
+                cell.Expansions++;
+                return choices[random.Next(choices.Length)].Node;
+            }
             internal int CheckpointAt(MotionVector[] path,int frame)
             {int progress=0;for(int i=0;i<=frame;i++)progress=_route.Advance(progress,path[i]);return progress;}
         }

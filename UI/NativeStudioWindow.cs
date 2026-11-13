@@ -26,15 +26,20 @@ namespace Igtap.Tas.UI
         private readonly Dictionary<int, IntPtr> _controls = new Dictionary<int, IntPtr>();
         private readonly List<Control> _layout = new List<Control>();
         private readonly Dictionary<int, bool> _availability = new Dictionary<int, bool>();
+        private readonly Dictionary<int,string> _labels=new Dictionary<int,string>();
+        private readonly HashSet<int> _readOnlyText=new HashSet<int>();
         private IntPtr _background, _normalFont, _monoFont;
         private readonly NativeTheme _theme = new NativeTheme();
         private float _scale = 1;
         private int _tab;
         private Snapshot _shown;
-        private string _name = "", _localError = "";
+        private string _name = "", _localError = "",_windowTitle="";
         private string[] _movies = Array.Empty<string>(), _states = Array.Empty<string>();
         private NativeFrameEditor _editor;
         private NativeBruteforceWindow _bruteforce;
+        private int _trajectorySequence, _trajectoryRefreshSequence;
+        private bool _trajectoryRequested, _trajectoryEditDirty, _writingTrajectoryFrames;
+        private int _trajectoryFrames = 280;
         internal IntPtr BruteforceHandle => _bruteforce?.Handle ?? IntPtr.Zero;
         internal IntPtr CheckpointMapHandle=>_bruteforce?.MapHandle??IntPtr.Zero;
         internal IntPtr EditorHandle => _editor?.Handle ?? IntPtr.Zero;
@@ -78,6 +83,7 @@ namespace Igtap.Tas.UI
                     980, 850, IntPtr.Zero, IntPtr.Zero, instance, IntPtr.Zero);
                 if (hwnd == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
                 NativeTheme.DarkTitle(hwnd);
+                _theme.WindowIcon(hwnd);
                 Interlocked.Exchange(ref _handle, hwnd);
                 _scale = Math.Max(1, N.GetDpiForWindow(hwnd) / 96f);
                 Build(); Fonts(); Layout();
@@ -130,8 +136,9 @@ namespace Igtap.Tas.UI
                 if (hwnd != IntPtr.Zero) N.DestroyWindow(hwnd);
                 Interlocked.Exchange(ref _handle, IntPtr.Zero);
                 _channel.IsOpen = _channel.Starting = false; _channel.Clear();
-                _controls.Clear(); _layout.Clear(); _availability.Clear(); _shown = null; _name = _localError = "";
+                _controls.Clear(); _layout.Clear(); _availability.Clear(); _labels.Clear();_readOnlyText.Clear(); _shown = null; _name = _localError = _windowTitle = "";
                 _movies = _states = Array.Empty<string>();
+                _trajectorySequence = _trajectoryRefreshSequence = 0; _trajectoryEditDirty = false;
                 _theme.Dispose();
                 if (registered) N.UnregisterClass(className, instance);
                 if (_background != IntPtr.Zero) N.DeleteObject(_background);
@@ -162,7 +169,7 @@ namespace Igtap.Tas.UI
                     case 0x2B:
                         var item = Marshal.PtrToStructure<N.DrawItem>(lp);
                         if (item.Type == 4) _theme.Button(item, item.Id == 100 || item.Id == 108 || item.Id == 403,
-                            item.Id == 10 && _tab == 0 || item.Id == 11 && _tab == 3 || item.Id == 13 && _tab == 4, item.Id == 102);
+                            item.Id == 10 && _tab == 0 || item.Id == 11 && _tab == 3 || item.Id == 13 && _tab == 4 || item.Id == 14 && _tab == 2, item.Id == 102);
                         else if (item.Id == 1) _theme.Header(item, _shown, "TAS STUDIO");
                         else if (item.Id == 21) _theme.Stats(item, _shown);
                         else if (item.Id == 23)
@@ -185,6 +192,7 @@ namespace Igtap.Tas.UI
                         return new IntPtr(1);
                     case 0x111:
                         int id = (int)(wp.ToInt64() & 0xffff), notification = (int)((wp.ToInt64() >> 16) & 0xffff);
+                        if (id == 603 && notification == 0x300 && !_writingTrajectoryFrames) _trajectoryEditDirty = true;
                         if (notification == 0) Click(id);
                         return IntPtr.Zero;
                     case 0x133: case 0x134: case 0x135: case 0x138:
@@ -205,6 +213,7 @@ namespace Igtap.Tas.UI
             IntPtr child = N.CreateWindowEx(0, kind, text, Child | style, 0, 0, 1, 1, Handle, new IntPtr(id), N.GetModuleHandle(null), IntPtr.Zero);
             if (child == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
             _controls.Add(id, child); _layout.Add(new Control { Id = id, X = x, Y = y, Width = w, Height = h, Page = page });
+            if(kind=="STATIC" || kind=="BUTTON"){_readOnlyText.Add(id);_labels[id]=text??"";}
             if (kind == "EDIT") N.SendMessage(child, 0xC5, new IntPtr(60), IntPtr.Zero);
             if (kind == "BUTTON" && (style & 15) == 3) N.SetWindowTheme(child, "", "");
         }
@@ -219,6 +228,7 @@ namespace Igtap.Tas.UI
             Add(2, "STATIC", "", 0, 0, 1, 1);
             for (int i = 0; i < 2; i++) Add(10 + i, "BUTTON", new[] { "Run", "States" }[i], 0, 0, 1, 1, -1, TabStop);
             Add(13, "BUTTON", "Checks", 0, 0, 1, 1, -1, TabStop);
+            Add(14, "BUTTON", "Preview", 0, 0, 1, 1, -1, TabStop);
             Add(20, "STATIC", "PLAYER / LIVE + NEXT FRAME", 0, 0, 1, 1);
             Add(21, "STATIC", "Waiting for player...", 0, 0, 1, 1);
             Add(22, "STATIC", "", 0, 0, 1, 1);
@@ -241,6 +251,13 @@ namespace Igtap.Tas.UI
             Label(400, "SAVESTATES / paused recording", 0, 3); Label(401, "State name", 38, 3); Edit(402, "checkpoint-1", 64, 3);
             Button(403, "Save current state", 104, 3); Combo(404, 156, 3); Button(405, "Load selected state", 196, 3);
             Label(406, "Loading reconstructs the saved frame by replay,\r\nthen pauses recording. This is not an instant\r\nmemory restore.", 244, 3, 85);
+            Check(601, "Show in-game trajectory", 0, 2);
+            Label(602, "Preview length (1-2000 TAS frames)", 42, 2);
+            Edit(603, "280", 72, 2); Button(604, "Apply preview settings", 112, 2);
+            Button(607, "Refresh snapshot (paused)", 152, 2);
+            Label(605, "", 194, 2, 100);
+            Label(606, "Cyan: hold current controls\r\nWhite cross: next frame\r\nYellow: end of preview\r\nRed: death | Orange: unsupported contact\r\n\r\nPause once to capture the world. Current-frame\r\nsnapshots are estimates; frame 0 gives the most\r\nreliable history. Future timeline changes are\r\nnot followed.", 302, 2, 210);
+            _trajectoryEditDirty = false;
         }
         private void Fonts()
         {
@@ -254,8 +271,8 @@ namespace Igtap.Tas.UI
             int middle = (width - 96) * 44 / 100, mx = 32, rx = mx + middle + 48;
             bool compact = height < 740;
             Move(1, 16, 16, width - 32, 124); Move(2, 16, height - 68, width - 32, 52);
-            var tabs = new[] { 10, 11, 13 };
-            for (int i = 0; i < tabs.Length; i++) Move(tabs[i], mx + i * (middle / 3), 170, middle / 3 - 4, 32);
+            var tabs = new[] { 10, 11, 14, 13 };
+            for (int i = 0; i < tabs.Length; i++) Move(tabs[i], mx + i * (middle / 4), 170, middle / 4 - 4, 32);
             int tableHeight = Math.Max(242, Math.Min(320, height - 480));
             Move(20, rx, 170, width - rx - 32, 30); Move(21, rx, 218, width - rx - 32, tableHeight);
             Move(22, rx, 234 + tableHeight, width - rx - 32, compact ? 44 : 66);
@@ -263,7 +280,7 @@ namespace Igtap.Tas.UI
             foreach (var c in _layout.Where(c => c.Page >= 0))
             {
                 Move(c.Id, mx + c.X * middle / 320, 218 + c.Y, c.Width * middle / 320, c.Height);
-                N.ShowWindow(_controls[c.Id], c.Page == _tab && !(compact && c.Id == 114) ? 5 : 0);
+                N.ShowWindow(_controls[c.Id], c.Page == _tab && !(compact && (c.Id == 114 || c.Id == 606)) ? 5 : 0);
             }
             Move(501, mx, 498, middle, Math.Max(32, height - 592));
             if (_shown != null) Details(_shown);
@@ -285,16 +302,23 @@ namespace Igtap.Tas.UI
         private N.Rect PanelRect(int x, int y, int w, int h) => new N.Rect { Left = (int)(x * _scale), Top = (int)(y * _scale), Right = (int)((x + w) * _scale), Bottom = (int)((y + h) * _scale) };
         private void Move(int id, int x, int y, int w, int h) { if (_controls.TryGetValue(id, out var c)) N.MoveWindow(c, (int)(x * _scale), (int)(y * _scale), Math.Max(1, (int)(w * _scale)), Math.Max(1, (int)(h * _scale)), true); }
         private string Text(int id) { var s = new StringBuilder(512); N.GetWindowText(_controls[id], s, s.Capacity); return s.ToString(); }
-        private void Text(int id, string text) { if (Text(id) != text) N.SetWindowText(_controls[id], text ?? ""); }
+        private void Text(int id, string text)
+        {
+            text=text??"";
+            if(_readOnlyText.Contains(id))
+            {if(_labels.TryGetValue(id,out var old) && old==text)return;N.SetWindowText(_controls[id],text);_labels[id]=text;}
+            else if(Text(id)!=text)N.SetWindowText(_controls[id],text);
+        }
         private bool Checked(int id) => N.SendMessage(_controls[id], 0xF0, IntPtr.Zero, IntPtr.Zero).ToInt64() == 1;
         private void SetCheck(int id, bool check) => N.SendMessage(_controls[id], 0xF1, new IntPtr(check ? 1 : 0), IntPtr.Zero);
         private int Selection(int id) => (int)N.SendMessage(_controls[id], id == 4 ? 0x188u : 0x147u, IntPtr.Zero, IntPtr.Zero);
-        private void Enable(int id, bool enabled) { _availability[id] = enabled; N.EnableWindow(_controls[id], enabled); }
-        private void Send(Command c) { _localError = _channel.Send(c) ? "" : "Window is closing or commands are full. Nothing was sent."; }
+        private void Enable(int id, bool enabled)
+        {if(_availability.TryGetValue(id,out bool old) && old==enabled)return;_availability[id]=enabled;N.EnableWindow(_controls[id],enabled);}
+        private bool Send(Command c) { bool sent = _channel.Send(c); _localError = sent ? "" : "Window is closing or commands are full. Nothing was sent."; return sent; }
         private void Click(int id)
         {
             if (_availability.TryGetValue(id, out bool available) && !available) return;
-            if (id >= 10 && id <= 11 || id == 13) { _tab = id == 10 ? 0 : id == 11 ? 3 : 4; Layout(); return; }
+            if (id == 10 || id == 11 || id == 13 || id == 14) { _tab = id == 10 ? 0 : id == 11 ? 3 : id == 14 ? 2 : 4; Layout(); return; }
             switch (id)
             {
                 case 100: Send(new Command { Action = "pause" }); break;
@@ -308,6 +332,18 @@ namespace Igtap.Tas.UI
                 case 118: Send(new Command { Action = "saveProfile" }); break;
                 case 119: Send(new Command { Action = "verifyReplay" }); break;
                 case 120: _bruteforce?.Open(); break;
+                case 601: case 604:
+                    int frames = _trajectorySequence > 0 ? _trajectoryFrames : _channel.Latest?.TrajectoryFrames ?? 280;
+                    if (id == 604 && (!int.TryParse(Text(603), out frames) || frames < 1 || frames > 2000))
+                        throw new ArgumentException("Preview length must be 1-2000 TAS frames.");
+                    var preview = new Command { Action = "trajectory", Authored = Checked(601), Count = frames };
+                    if (Send(preview))
+                    { _trajectorySequence = preview.Sequence; _trajectoryRequested = preview.Authored; _trajectoryFrames = frames; if (id == 604) _trajectoryEditDirty = false; }
+                    break;
+                case 607:
+                    var refresh = new Command { Action = "trajectoryRefresh" };
+                    if (Send(refresh)) _trajectoryRefreshSequence = refresh.Sequence;
+                    break;
                 case 403: Send(new Command { Action = "saveState", Name = Text(402) }); break;
                 case 405: Send(new Command { Action = "loadState", Name = Text(404) }); break;
             }
@@ -315,9 +351,26 @@ namespace Igtap.Tas.UI
         private void Refresh()
         {
             var s = _channel.Latest; if (s == null) return;
+            string title="Tas Studio v"+s.ModVersion+" - "+s.LoadedMap;
+            if(title!=_windowTitle){N.SetWindowText(Handle,title);_windowTitle=title;}
             bool relayout = _shown == null || _shown.Mode != s.Mode || _shown.MainMenu != s.MainMenu;
             _shown = s;
             Text(501, s.AuditResult);
+            // The game can take longer than one UI timer tick to acknowledge
+            // a click, especially during a world capture. Preserve the user's
+            // latest intent until that command's sequence has been processed.
+            if (_trajectorySequence > 0 && s.CompletedSequence >= _trajectorySequence) _trajectorySequence = 0;
+            if (_trajectoryRefreshSequence > 0 && s.CompletedSequence >= _trajectoryRefreshSequence) _trajectoryRefreshSequence = 0;
+            bool previewPending = _trajectorySequence > 0;
+            SetCheck(601, previewPending ? _trajectoryRequested : s.TrajectoryEnabled);
+            if (!_trajectoryEditDirty && N.GetFocus() != _controls[603])
+            {
+                _writingTrajectoryFrames = true;
+                try { Text(603, (previewPending ? _trajectoryFrames : s.TrajectoryFrames).ToString(CultureInfo.InvariantCulture)); }
+                finally { _writingTrajectoryFrames = false; }
+            }
+            Enable(607, s.Active && s.Paused && !previewPending && _trajectoryRefreshSequence == 0 && s.TrajectoryEnabled);
+            Text(605, previewPending ? "Applying preview settings..." : _trajectoryRefreshSequence > 0 ? "Refreshing trajectory snapshot..." : s.TrajectoryStatus);
             Enable(119, s.MainMenu && !s.Active && !s.PendingEdits && !s.AuditRunning && s.Frames > 0);
             Enable(105, !s.AuditRunning);
             Text(100, s.Bindings.Label(TasShortcut.Pause) + "  Pause / Run");

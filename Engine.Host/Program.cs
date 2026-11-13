@@ -20,13 +20,15 @@ if(args.Length==3 && args[0]=="capture-audit")
     } catch(Exception error) { Console.Error.WriteLine(error.Message); return 1; }
 }
 if(args.Length==2 && args[0]=="solve") return EngineSearchRunner.Run(args[1]);
+if(args.Length==2 && args[0]=="prefix-check") return EngineSearchRunner.Run(args[1],prefixOnly:true);
+if(args.Length==3 && args[0]=="trajectory") return TrajectoryRunner.Run(Path.GetFullPath(args[1]),int.Parse(args[2]));
 if(args.Length==2 && args[0]=="beam-cache-check") return SearchCacheChecks.Run(args[1]);
 if(args.Length==3 && args[0]=="candidate-check") return CandidateChecks.Run(args[1],args[2]);
 if(args.Length==2 && args[0]=="collision-check") return CollisionChecks.Run(Path.GetFullPath(args[1]));
 if(args.Length==1 && args[0]=="self-check") return CompatibilityChecks.Run();
 if (args.Length != 2 || (args[0] != "trace" && args[0] != "restore-check" && args[0] != "worker-check" && args[0] != "benchmark"))
 {
-    Console.Error.WriteLine("Usage: TasStudio.EngineHost trace|restore-check|worker-check|benchmark <captured-test-directory>; capture-audit <gameplay.zip> <report.json>; collision-check <probe-directory>; solve <job.json>");
+    Console.Error.WriteLine("Usage: TasStudio.EngineHost trace|restore-check|worker-check|benchmark <captured-test-directory>; capture-audit <gameplay.zip> <report.json>; collision-check <probe-directory>; solve|prefix-check <job.json>");
     return 2;
 }
 string directory = Path.GetFullPath(args[1]);
@@ -78,7 +80,7 @@ try
     int physicsEnd=File.Exists(physicsEndFile) ? int.Parse(File.ReadAllText(physicsEndFile)) : 0;
     SimulationTrace Template() => new SimulationTrace { Fps = native.Fps, StartFrame = native.StartFrame, StartPhase = native.StartPhase,
         Previous = native.Previous, GameHash = native.GameHash, WorldHash = native.WorldHash, Backend = "retargeted-frame-host-development-v1",
-        Inputs = native.Inputs.ToList(), Coverage = native.Coverage, AdvanceMode = native.AdvanceMode, AnimationHash = native.AnimationHash, CaptureOrbs = native.CaptureOrbs, CaptureMovers = native.CaptureMovers, CaptureSprings = native.CaptureSprings, CaptureUpgrades=native.CaptureUpgrades };
+        Inputs = native.Inputs.ToList(), PreparedNextFrames=native.PreparedNextFrames.ToList(), Coverage = native.Coverage, AdvanceMode = native.AdvanceMode, AnimationHash = native.AnimationHash, CaptureOrbs = native.CaptureOrbs, CaptureMovers = native.CaptureMovers, CaptureSprings = native.CaptureSprings, CaptureUpgrades=native.CaptureUpgrades };
     void Checkpoint(int completed)
     {
         void Save(string name) { if (!checkpoints.ContainsKey(name)) checkpoints.Add(name, (simulation.CaptureStudioState(), completed + 1, MoverFields())); }
@@ -107,6 +109,14 @@ try
         };
         string moverLog=Path.Combine(directory,"offline-mover-events.jsonl");
         if(write && diagnostics) File.Delete(moverLog);
+        string collisionLog=Path.Combine(directory,"offline-player-collision-events.jsonl");
+        if(write && diagnostics) File.Delete(collisionLog);
+        simulation.Physics.StudioMessage = !diagnostics || physicsEnd<=0 ? null : (script, message, argument, after) => {
+            if(frame>=physicsEnd || !(script is Movement player) || !(argument is UnityEngine.Collision2D collision)) return;
+            var velocity=player.Velocity;
+            var points=collision.Contacts.Select(c=>new {X=c.point.x,Y=c.point.y,NX=c.normal.x,NY=c.normal.y,c.separation}).ToArray();
+            File.AppendAllText(collisionLog,Newtonsoft.Json.JsonConvert.SerializeObject(new {frame,callback=message,phase=after ? "after" : "before",Other=collision.collider?.GetInstanceID(),Name=collision.collider?.name,Velocity=new {velocity.x,velocity.y},Contacts=points,Raw=simulation.Physics.StudioPlayerContacts()})+"\n");
+        };
         var contacts = new System.Collections.Generic.Queue<object>();
         object movementBody=null;
         simulation.StudioAfterMovement=() => { var body=simulation.Physics.PlayerBody(); movementBody=new {VX=SimulationTraceComparer.Float(body.vx),VY=SimulationTraceComparer.Float(body.vy),body.px,body.py}; };
@@ -159,17 +169,19 @@ try
         try
         {
             for (; frame < Math.Min(until, native.Inputs.Count); frame++) {
+                if(native.PreparedNextFrames.Count!=0)simulation.ConfigureStudioEndPacing(native.PreparedNextFrames[frame]);
                 simulation.StepStudioFrame(EngineFixture.Input(native.Inputs[frame], frame == 0 ? native.Previous : native.Inputs[frame - 1]));
                 completed?.Invoke(frame);
             }
         }
-        finally { simulation.StudioSample = null; simulation.Physics.StudioContact = null; simulation.StudioAfterMovement=null;
+        finally { simulation.StudioSample = null; simulation.Physics.StudioContact = null; simulation.Physics.StudioMessage=null; simulation.StudioAfterMovement=null;
             IGTAP.EngineSim.Engine.TransformChanging=transformChanging;
             if (write) { SearchFiles.Write(Path.Combine(directory, "offline.trace.json"), trace); wroteTrace = true; } }
         return trace;
     }
     var snapshot = simulation.CaptureStudioState();
-    var offline = Run(completed: args[0] == "restore-check" ? Checkpoint : null);
+    bool frameEndWitness = native.Samples.Skip(1).All(s => s.Phase == "frame-end");
+    var offline = Run(frameEndsOnly: frameEndWitness, completed: args[0] == "restore-check" ? Checkpoint : null);
     SearchFiles.Write(Path.Combine(directory, "offline.trace.json"), offline);
     var comparison = SimulationTraceComparer.Compare(native, offline);
     SearchFiles.Write(Path.Combine(directory, "comparison.json"), comparison);
@@ -187,7 +199,7 @@ try
         // A different branch must not change a later restored replay (A/B/A).
         for (int i = 0; i < 20; i++) simulation.StepStudioFrame(new StudioInput { X = -1 });
         simulation.RestoreStudioState(snapshot);
-        var again = Run();
+        var again = Run(frameEndsOnly: frameEndWitness);
         var restore = SimulationTraceComparer.Compare(offline, again);
         SearchFiles.Write(Path.Combine(directory, "restore-comparison.json"), restore);
         Console.WriteLine("Restore A/B/A: " + restore.Message); restorePassed = restore.Passed;
@@ -201,7 +213,7 @@ try
             SearchFiles.Write(Path.Combine(directory,"mover-restore-"+checkpoint.Key+".json"),new {Passed=moverMatch});
             restorePassed &= moverMatch;
             int first=checkpoint.Value.NextFrame, end=Math.Min(native.Inputs.Count, first + native.Fps);
-            var branch=Run(first, end, write:false, diagnostics:false);
+            var branch=Run(first, end, write:false, diagnostics:false, frameEndsOnly:frameEndWitness);
             var expected=Template(); expected.Samples=offline.Samples.Where(s => s.Frame >= first && s.Frame < end && s.Phase != "start").ToList();
             var check=SimulationTraceComparer.Compare(expected, branch);
             SearchFiles.Write(Path.Combine(directory, "restore-" + checkpoint.Key + ".json"), check);

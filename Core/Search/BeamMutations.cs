@@ -77,6 +77,16 @@ namespace Igtap.Tas.Core.Search
                 for(int i=first;i<end;i++)rows[i]=new FrameInput{X=replacement.X,Y=replacement.Y,Held=replacement.Held};
                 if(end<length)rows[end]=RebaseInput(rows[end],route.Inputs[end-1],rows[end-1]);
             }
+            else if (serial < 225)
+            {
+                // The coarse cuts above can miss a one-frame saving on a
+                // long route. Sweep fine cuts too, restarting on every new
+                // best so several independent waits can be removed in turn.
+                int choice = serial - 97;
+                first = (int)((long)choice * (length - 1) / 127);
+                rows = route.Inputs.Take(first).Concat(route.Inputs.Skip(first + 1)).ToArray();
+                if (first < rows.Length) rows[first] = RebaseInput(rows[first], route.Inputs[first], first == 0 ? job.Start.Previous : rows[first - 1]);
+            }
             else
             {
                 first = random.Next(length);

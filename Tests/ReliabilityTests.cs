@@ -88,6 +88,16 @@ internal static class ReliabilityTests
             profiler.Save(profile);
             Check(Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(profile))["OperationsIncludingPausedEditor"]["Journal"]["Calls"].Value<long>() == 1,
                 "Paused editing costs are measured separately from advancing frames");
+            using (profiler.Measure(ProfileSection.TrajectoryCapture)) { }
+            using (profiler.Measure(ProfileSection.TrajectoryDraw)) { }
+            profiler.Save(profile);
+            var previewProfile = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(profile));
+            Check(previewProfile["OperationsIncludingPausedEditor"]["TrajectoryCapture"]["Calls"].Value<long>() == 1 &&
+                previewProfile["OperationsIncludingPausedEditor"]["TrajectoryDraw"]["Calls"].Value<long>() == 1,
+                "Trajectory capture and drawing are visible even while the editor is paused.");
+            profiler.Reset(); profiler.Save(profile);
+            Check(Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(profile))["OperationsIncludingPausedEditor"]["TrajectoryCapture"]["Calls"].Value<long>() == 0,
+                "Reset clears the added trajectory timing sections too.");
 
             Console.WriteLine("PASS: " + checks + " input history, journal recovery, checkpoint and profiler checks.");
         }

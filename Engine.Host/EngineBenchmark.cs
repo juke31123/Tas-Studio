@@ -22,7 +22,10 @@ internal static class EngineBenchmark
         {
             simulation.RestoreStudioState(root);
             for (int frame=0; frame<native.Inputs.Count; frame++)
+            {
+                if(native.PreparedNextFrames.Count!=0)simulation.ConfigureStudioEndPacing(native.PreparedNextFrames[frame]);
                 pus+=simulation.StepStudioFrame(EngineFixture.Input(native.Inputs[frame],frame==0 ? native.Previous : native.Inputs[frame-1]));
+            }
         }
         Replay(); pus=0; // Warm runtime/JIT and physics caches before measuring.
         long allocated=GC.GetAllocatedBytesForCurrentThread(); var watch=Stopwatch.StartNew();

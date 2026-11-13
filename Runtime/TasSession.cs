@@ -53,6 +53,7 @@ namespace Igtap.Tas.Runtime
                 _menuToggleRequested = true;
         }
         public IgtapAdapter Adapter { get; }
+        public ITrajectoryPreview Trajectory { get; set; }
         internal SimulationTimers MovementTimers { get; } = new SimulationTimers();
         public MovieStore Store { get; }
         public Keybinds Bindings { get; private set; } = new Keybinds();
@@ -143,6 +144,17 @@ namespace Igtap.Tas.Runtime
         internal bool DiagnosticNeutralInput;
         public FrameInput AuthoredInput;
         public FrameInput CurrentInput => _current;
+        internal FrameInput PreviewInput(out string source)
+        {
+            if (Mode == SessionMode.Playback && Cursor < Movie.Frames.Count)
+            { source = "Next recorded input"; return Movie.Frames[Cursor].Input; }
+            if (Active && DiagnosticNeutralInput) { source = "Neutral diagnostic input"; return default; }
+            if (Mode == SessionMode.Recording && UseTimelineInput && Cursor < EditorMovie.Frames.Count)
+            { source = "Next timeline input"; return EditorMovie.Frames[Cursor].Input; }
+            if (Mode == SessionMode.Recording && UseAuthoredInput)
+            { source = "Selected frame input"; return AuthoredInput; }
+            source = "Hold current physical controls"; return TrajectoryRequest.Hold(Adapter.ReadPhysicalInput());
+        }
         public FrameInput PreviousInput => _previous;
         public float StepSeconds => 1f / Movie.FrameRate;
         public double PuPhase => _clock?.Phase ?? 0;
@@ -224,7 +236,7 @@ namespace Igtap.Tas.Runtime
         }
         private bool LoadingReady() => Mode == SessionMode.Stopping && _returnToMenu
             ? _sceneReady && IsMainMenu
-            : _sceneReady && _playerStarted && _zoneLoadSeen && _zoneLoads.Count == 0 && Adapter.Bind();
+            : _sceneReady && _playerStarted && _zoneLoadSeen && _zoneLoads.Count == 0 && Adapter.Bind() && Adapter.PrepareCustomMap(Movie.StartSetup);
         public void StartRecording()
         {
             RequireIdle();
@@ -248,6 +260,7 @@ namespace Igtap.Tas.Runtime
             if (!IsMainMenu) throw new InvalidOperationException("Create New Tas is available from the game's main menu.");
             if (setup == null) throw new ArgumentNullException(nameof(setup));
             setup.Validate();
+            Adapter.PrepareStart(setup,true);
             GameFrameRates.RequireAvailable(setup.FrameRate);
             string scene = Adapter.SceneFor(setup);
             if (!Adapter.CanLoadScene(scene)) throw new InvalidOperationException("The selected gameplay scene is unavailable.");
@@ -322,13 +335,14 @@ namespace Igtap.Tas.Runtime
                 throw new InvalidOperationException("Incompatible TAS run: recorded with different mod files. Record a new run with the installed version.");
             if (movie.StartSetup == null && EnvironmentFingerprint.Saves() != movie.SaveHash) throw new InvalidOperationException("Saved progress differs. Restore the original save externally before playback.");
             if (movie.StartSetup != null && Adapter.SceneFor(movie.StartSetup) != movie.Scene) throw new InvalidOperationException("The selected start does not match the movie scene.");
+            Adapter.PrepareStart(movie.StartSetup,false);
             if (!IsMainMenu && SceneManager.GetActiveScene().path != movie.Scene) throw new InvalidOperationException("Enter this movie's scene or the main menu first: " + movie.Scene);
             if (!Adapter.CanLoadScene(movie.Scene)) throw new InvalidOperationException("The movie's gameplay scene is unavailable.");
         }
-        private WorldWitness CaptureWorld()
+        private WorldWitness CaptureWorld(bool compact=false)
         {
             using var timing = Profiler.Measure(ProfileSection.WorldProbe);
-            var witness = Adapter.CaptureWorld();
+            var witness = compact ? Adapter.CaptureReplayWorld() : Adapter.CaptureWorld();
             RunPreferences.Capture(witness);
             MovementTimers.Capture(witness);
             witness.Numbers["session/scale"] = _clock.SimulationScale;
@@ -521,7 +535,7 @@ namespace Igtap.Tas.Runtime
                         // One complete witness per movie second, plus any supplied
                         // reference. Never enumerate every scene object at 280 Hz.
                         if (Cursor % Movie.FrameRate == 0 || Cursor < Movie.Frames.Count && Movie.Frames[Cursor].World != null)
-                            world = CaptureWorld().CompactForReplay();
+                            world = CaptureWorld(true);
                         if (_playing)
                         {
                             var frame = Movie.Frames[Cursor];
@@ -945,6 +959,7 @@ namespace Igtap.Tas.Runtime
         }
         public void Dispose()
         {
+            Trajectory?.Dispose();
             Search?.Dispose();
             if (_searchOriginal != null) { Movie = _searchOriginal; Dirty = _searchOriginalDirty; _searchOriginal = null; }
             Audit.Cancel();

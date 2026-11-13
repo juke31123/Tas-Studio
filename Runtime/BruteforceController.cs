@@ -22,12 +22,14 @@ namespace Igtap.Tas.Runtime
         public SearchBody[] MapGeometry {get;private set;}=Array.Empty<SearchBody>();
         public int MapRevision {get;private set;}
         public MotionVector MapPlayer {get;private set;}
+        public string MapKey {get;private set;}="";
         public void CaptureMap()
         {
             if(!CanStart)throw new InvalidOperationException("Pause the TAS and finish pending edits before capturing the map.");
+            _session.Adapter.ValidateLoadedMap(_session.Movie.StartSetup,true);
             if((_session.Adapter as object) is ISearchMapCapture map)MapGeometry=map.CaptureSearchMap(_session);
             else{var job=new SearchJob{Fps=_session.Movie.FrameRate,Options=Options.Copy()};_session.Adapter.CaptureSearch(_session,job);MapGeometry=job.Geometry;}
-            MapPlayer=_session.Adapter.SearchWorldPosition();MapRevision++;
+            MapPlayer=_session.Adapter.SearchWorldPosition();MapKey=_session.Adapter.LoadedMapKey;MapRevision++;
         }
         public void SetCheckpoints(SearchCheckpoint[] points)
         {
@@ -124,6 +126,7 @@ namespace Igtap.Tas.Runtime
             _workerError="";
             if (!_session.Active || !_session.Frozen || _session.HasPendingEdits || Options.StartFrame > _session.Cursor)
                 throw new InvalidOperationException("Pause the TAS at or after the selected start frame and save edits before searching.");
+            _session.Adapter.ValidateLoadedMap(_session.Movie.StartSetup,true);
             _engineCapture=(_session.Adapter as object) as IEngineSearchCapture;
             _useEngine=!string.IsNullOrEmpty(EngineWorkerPath) && _engineCapture!=null;
             if (Options.Mode=="wave" && !_useEngine) throw new InvalidOperationException("Wave search requires the prepared local game-code host. Chain and beam remain available.");
@@ -136,6 +139,7 @@ namespace Igtap.Tas.Runtime
             _source = _session.Movie.CopyForEdit(); _sourceHash = SearchFiles.Hash(_source); _verified = false;
             Job = new SearchJob { Options = Options.Copy(), Fps = _source.FrameRate, MovieHash = _sourceHash,
                 PrefixHash = SearchFiles.PrefixHash(_source, Options.StartFrame), GameHash = _source.GameHash, Scene = _source.Scene,
+                CustomMapId=_source.StartSetup?.CustomMapId??"",CustomMapName=_source.StartSetup?.CustomMapName??"",CustomMapHash=_source.StartSetup?.CustomMapHash??"",
                 SeedInputs = _source.Frames.Skip(Options.StartFrame).Take(Options.FrameLimit).Select(f => f.Input).ToArray() };
             if(_useEngine) Job.Simulator=EngineSearchSpec.Backend;
             _directory = Path.Combine(_root, Job.Id); Directory.CreateDirectory(_directory);

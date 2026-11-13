@@ -34,6 +34,9 @@ namespace Igtap.Tas.Core.Simulation
         public double StartPhase;
         public FrameInput Previous;
         public List<FrameInput> Inputs = new List<FrameInput>();
+        // Diagnostic captures can mix running frames and the final paused
+        // frame of a frame/PU step. Their End clocks have different pacing.
+        public List<bool> PreparedNextFrames = new List<bool>();
         public List<SimulationSample> Samples = new List<SimulationSample>();
         public string[] Coverage = Array.Empty<string>();
 
@@ -43,6 +46,7 @@ namespace Igtap.Tas.Core.Simulation
                 Array.IndexOf(new[] { 30, 50, 60, 100, 120, 144, 165, 244, 280 }, Fps) < 0 ||
                 double.IsNaN(StartPhase) || double.IsInfinity(StartPhase) || StartPhase < 0 || StartPhase >= FrameTiming.PuSeconds ||
                 Inputs == null || Inputs.Count > Movie.MaxFrames || Samples == null || Samples.Count > 4 * Movie.MaxFrames ||
+                PreparedNextFrames == null || PreparedNextFrames.Count != 0 && PreparedNextFrames.Count != Inputs.Count ||
                 string.IsNullOrEmpty(GameHash) || string.IsNullOrEmpty(WorldHash))
                 throw new InvalidDataException("Incomplete simulator trace or unsupported timing contract.");
             foreach (var input in Inputs)

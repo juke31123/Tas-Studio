@@ -28,6 +28,7 @@ internal static class EngineFixture
         var time = world.RootElement.GetProperty("time");
         simulation.LoadStart(start.RootElement, canonical: false);
         simulation.ConfigureStudioBodyPoses(world.RootElement);
+        simulation.Physics.StudioImportPlayerTriggerContacts(start.RootElement);
         simulation.ConfigureStudioFrames(reference.Fps, reference.StartPhase, Input(reference.Previous, default),
             time.GetProperty("nativeTime").GetDouble(), time.GetProperty("nativeFixedTime").GetDouble(),
             time.GetProperty("captureTicks").GetInt64(), reference.AdvanceMode == "continuous");
@@ -37,6 +38,7 @@ internal static class EngineFixture
         using var animation = JsonDocument.Parse(File.ReadAllText(Path.Combine(directory, "animation.json")));
         simulation.ConfigureStudioAnimation(animation.RootElement);
         simulation.ConfigureStudioEconomy();
+        simulation.ConfigureStudioPreviewTimers(start.RootElement);
         return simulation;
     }
 
@@ -62,6 +64,7 @@ internal static class EngineFixture
         sample.Fields["clock/capture-ticks"] = simulation.StudioCaptureTicks.ToString(System.Globalization.CultureInfo.InvariantCulture);
         SimulationFieldCapture.AddRandom(sample.Fields, UnityEngine.Random.state);
         SimulationFieldCapture.AddEconomy(sample.Fields, globalStats.currencyLookup, globalStats.globalUpgradeDict);
+        if(VmanScript.isCurrentlyVman)SimulationFieldCapture.AddVman(sample.Fields,VmanScript.vmanTimeLeft,VmanScript.vmanScore);
         if(upgrades){foreach(var box in simulation.World.All<upgradeBox>())if(box.upgrade==localUpgrades.localUpgradeSet.cashPerLoop)SimulationFieldCapture.AddCashBox(sample.Fields,box,box.GetInstanceID());
             foreach(var local in simulation.World.All<localUpgrades>())SimulationFieldCapture.AddLocalUpgrades(sample.Fields,local,local.GetInstanceID());}
         if (orbs) foreach (var orb in simulation.StudioOrbs) SimulationFieldCapture.AddOrb(sample.Fields, orb, orb.GetInstanceID());

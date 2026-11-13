@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using Igtap.Tas.Core;
@@ -46,6 +47,7 @@ internal static class BeamSearchTests
         public bool Step(FrameInput input, SearchAbilities abilities, out string reason)
         {
             CheckThread(); Interlocked.Increment(ref _counts.Steps); reason = null;
+            if (_kind == 4) { reason = "Blocked test rollout"; return false; }
             _frame++; var p = State.Player;
             if (_kind == 0)
             {
@@ -106,12 +108,37 @@ internal static class BeamSearchTests
 
         var optimise = Job(30); optimise.Options.GoalX = 20;
         optimise.SeedInputs = Enumerable.Repeat(new FrameInput { X = 1 }, 20).ToArray();
-        var improved = new SectionSearch().Run(optimise, () => false, null, j => new Sim(j, new Counts(), 3));
+        var improvements = new List<int>(); bool improvingStatus = false;
+        var improved = new SectionSearch().Run(optimise, () => false, update => {
+            if (update.BestFrames > 0) improvements.Add(update.BestFrames);
+            if (!update.Finished && update.Status == "Improving Beam route") improvingStatus = true;
+        }, j => new Sim(j, new Counts(), 3));
         Check(improved.Inputs.Length == 10 && improved.Refinements > 0, "Beam improves an existing route rather than returning its first seed.");
+        Check(improved.Seconds >= optimise.Options.Seconds, "A found route and a refinement plateau do not end Beam before its deadline.");
+        Check(improved.Refinements > 192, "Beam continues refining beyond the old unsuccessful-attempt cutoff.");
+        Check(improvingStatus && improvements.Distinct().Count() > 1, "Progress shows automatic optimization and a shorter replacement for the first route.");
+        Check(improvements.Zip(improvements.Skip(1), (a, b) => b <= a).All(value => value), "The best route never gets worse while optimization continues.");
         Check(improved.Inputs.All(i => (i.Held | i.Press | i.Release) == Buttons.None), "Refinement honours disabled abilities.");
         var final = new Sim(optimise, new Counts(), 3);
         foreach (var input in improved.Inputs) Check(final.Step(input, SearchAbilities.None, out _), "A refined sequence is concrete replayable input.");
         Check(Math.Abs(final.State.Player.Position.X - optimise.Options.GoalX) <= optimise.Options.GoalRadius, "The refined route reaches the goal when replayed.");
+
+        var blockedJob = Job(8); blockedJob.Options.Seconds = 1;
+        var blockedCounts = new Counts();
+        var blocked = new SectionSearch().Run(blockedJob, () => false, null, j => new Sim(j, blockedCounts, 4));
+        Check(blocked.Seconds >= blockedJob.Options.Seconds && blocked.Status == "Budget reached" && blocked.Inputs.Length == 0,
+            "An exhausted archive with no candidate explores until the full budget expires.");
+        Check(blocked.Evaluated > 192 && blocked.Unsupported > 0, "Exploration continues to evaluate rollouts after the initial frontier is blocked.");
+
+        var oneFrame = Job(1); oneFrame.Options.GoalX = 3; oneFrame.Options.Seconds = 1;
+        var shortest = new SectionSearch().Run(oneFrame, () => false, null, j => new Sim(j, new Counts(), 3));
+        Check(shortest.Inputs.Length == 1 && shortest.Seconds >= oneFrame.Options.Seconds, "A one-frame candidate also respects the requested time budget.");
+
+        var cancelBestCounts = new Counts();
+        var cancelBest = new SectionSearch().Run(optimise, () => Interlocked.Read(ref cancelBestCounts.Steps) >= 1000,
+            null, j => new Sim(j, cancelBestCounts, 3));
+        Check(cancelBest.Status == "Cancelled" && cancelBest.Inputs.Length > 0 && cancelBest.Finished,
+            "Stopping optimization preserves the best complete unverified route already found.");
 
         var cancelCounts = new Counts(); var cancelJob = Job(200); cancelJob.Options.GoalX = 10000;
         var cancelled = new SectionSearch().Run(cancelJob, () => Interlocked.Read(ref cancelCounts.Steps) >= 50, null, j => new Sim(j, cancelCounts, 3));

@@ -20,6 +20,11 @@ namespace Igtap.Tas.UI
         private TMP_FontAsset _font;
         private TMP_Text _status, _selected, _filePage;
         private TMP_InputField _name;
+        private TMP_InputField _vmanSeconds;
+        private GameObject _startDropdown;
+        private string _mapChoicesKey;
+        private bool _startDropdownOpen;
+        private double _nextMapScan;
         private Button _toggle, _create, _load, _replay, _start, _desktop, _omni, _dashCount;
         private readonly GameObject[] _pages = new GameObject[4];
         private readonly Button[] _bindingButtons = new Button[Keybinds.Titles.Length];
@@ -80,8 +85,6 @@ namespace Igtap.Tas.UI
             Label(create, -280, 300, 180, 36, "Tas name");
             _name = PanelWidgets.CreateInputField(create, _font, new Vector2(80, 300), new Vector2(520, 38), "my-run");
             _name.text = session.FileName; _name.characterLimit = 60; PauseMenuHelper.IgnoreLayout(_name.gameObject);
-            var starts = new string[_setup.CourseCount + 1]; starts[0] = "New game - Area 1";
-            for (int i = 1; i < starts.Length; i++) starts[i] = "Level " + i + " - Area " + (i <= 5 ? "1" : "2") + (i >= 11 ? " (overgrown)" : "");
             Label(create, -280, 240, 180, 36, "Start position");
             Choice(create, -195, 170, "Wall jump", () => _setup.WallJump, v => _setup.WallJump = v);
             Choice(create, 195, 170, "Extra air jump (max 1)", () => _setup.DoubleJump, v => _setup.DoubleJump = v);
@@ -100,14 +103,19 @@ namespace Igtap.Tas.UI
             int selectedRate = Array.IndexOf(rates, Application.targetFrameRate);
             if (selectedRate < 0) selectedRate = 0;
             if (_hasFrameRates) _setup.FrameRate = rates[selectedRate];
-            Label(create, 0, -125, 760, 65, "New game starts in Area 1. Levels 6-15 load Area 2.\nLevels 11-15 use overgrown versions of levels 1-5.\nYour saved progress is preserved.");
+            Label(create,-290,-105,140,36,"Run mode");
+            PanelWidgets.CreateDropdown(create,_font,new Vector2(-60,-105),new Vector2(280,36),new[]{"Normal","Timed VMAN","VMAN practice"},0,value=>_setup.VmanMode=value);
+            Label(create,170,-105,110,36,"Seconds");
+            _vmanSeconds=PanelWidgets.CreateInputField(create,_font,new Vector2(290,-105),new Vector2(150,36),"60");_vmanSeconds.text="60";_vmanSeconds.characterLimit=5;PauseMenuHelper.IgnoreLayout(_vmanSeconds.gameObject);
+            Label(create, 0, -165, 760, 55, "Custom maps use the selected abilities and main spawn.\nLevels 11-15 are overgrown. Saved progress is preserved.");
             _start = Button(create, -195, -225, 370, "Start Tas", () => {
                 var setup = _setup.Clone(); if (!setup.Dash) setup.OmniDash = false;
+                if(setup.VmanMode==1){if(!int.TryParse(_vmanSeconds.text,out setup.VmanSeconds))throw new InvalidOperationException("Enter a VMAN duration in whole seconds.");}
                 _launcher.Create(_name.text, setup);
             });
             Button(create, 195, -225, 370, "Back", () => ShowPage(0));
             // Create the dropdown last so its expanded list draws above the ability controls.
-            PanelWidgets.CreateDropdown(create, _font, new Vector2(80, 240), new Vector2(520, 38), starts, 0, value => _setup.Course = value);
+            RefreshStartSelection();
             Label(create, 85, -50, 120, 36, "FPS / 50 PUs");
             if (_hasFrameRates)
                 PanelWidgets.CreateDropdown(create, _font, new Vector2(270, -50), new Vector2(200, 38),
@@ -193,9 +201,28 @@ namespace Igtap.Tas.UI
             CaptureBinding();
             if (_session == null || Time.realtimeSinceStartupAsDouble < _nextRefresh) return;
             _nextRefresh = Time.realtimeSinceStartupAsDouble + .2; RefreshState();
+            if(_pages[1].activeSelf&&!_startDropdownOpen&&Time.realtimeSinceStartupAsDouble>=_nextMapScan)
+            {_nextMapScan=Time.realtimeSinceStartupAsDouble+1;RefreshStartSelection();}
         }
         private void ShowPage(int page)
-        { _capture = -1; for (int i = 0; i < _pages.Length; i++) _pages[i].SetActive(i == page); }
+        { _capture = -1;if(page==1)RefreshStartSelection(true); for (int i = 0; i < _pages.Length; i++) _pages[i].SetActive(i == page); }
+        private void RefreshStartSelection(bool force=false)
+        {
+            var maps=CustomMaps.Available();
+            string key=string.Join("\n",Array.ConvertAll(maps,m=>m.Id+"\t"+m.Name));
+            if(!force&&key==_mapChoicesKey)return;
+            _mapChoicesKey=key;_startDropdownOpen=false;
+            if(_startDropdown!=null){_startDropdown.SetActive(false);UnityEngine.Object.Destroy(_startDropdown);}
+            var starts=new string[_setup.CourseCount+1+maps.Length];starts[0]="New game - Area 1";
+            for(int i=1;i<=_setup.CourseCount;i++)starts[i]="Level "+i+" - Area "+(i<=5?"1":"2")+(i>=11?" (overgrown)":"");
+            int selected=_setup.Course;
+            for(int i=0;i<maps.Length;i++){starts[_setup.CourseCount+1+i]="Custom: "+maps[i].Name;if(maps[i].Id==_setup.CustomMapId)selected=_setup.CourseCount+1+i;}
+            if(_setup.IsCustomMap&&selected<=_setup.CourseCount){_setup.CustomMapId=_setup.CustomMapName=_setup.CustomMapHash="";_setup.Course=0;selected=0;}
+            _startDropdown=PanelWidgets.CreateDropdown(_pages[1].transform,_font,new Vector2(80,240),new Vector2(520,38),starts,selected,value=>{
+                bool custom=value>_setup.CourseCount;_setup.Course=custom?0:value;
+                _setup.CustomMapId=custom?maps[value-_setup.CourseCount-1].Id:"";_setup.CustomMapName=custom?maps[value-_setup.CourseCount-1].Name:"";_setup.CustomMapHash="";
+            },open=>_startDropdownOpen=open);
+        }
         private void CaptureBinding()
         {
             var keyboard = Keyboard.current;
@@ -242,12 +269,13 @@ namespace Igtap.Tas.UI
                 PauseMenuHelper.SetButtonLabel(_bindingButtons[i].gameObject, _capture == i ? "Press a key..." : bindings.Label((TasShortcut)i));
             _bindingHelp.text = _capture >= 0 ? "Press F1-F12, A-Z or 0-9. Escape cancels; Delete clears.\n" + Keybinds.Titles[_capture] :
                 "Click a binding to change it. Changes save automatically.\nShortcuts work in the game and desktop editors.\nAvoid keys used for game actions. Ctrl+S and editor keys stay unchanged.";
-            _selected.text = "Selected: " + _session.FileName + "  |  " + _session.Movie.Frames.Count + " frames";
+            _selected.text = "Selected: " + _session.FileName + "  |  " + _session.Movie.Frames.Count + " frames\nLoaded: "+_session.Adapter.LoadedMapLabel;
             _create.interactable = _load.interactable = _start.interactable = _launcher.CanLaunch;
             _start.interactable &= _hasFrameRates;
             _replay.interactable = _launcher.CanLaunch && _session.Movie.Frames.Count > 0;
             _desktop.interactable = _enabled();
             _omni.interactable = _dashCount.interactable = _setup.Dash;
+            _vmanSeconds.interactable=_setup.VmanMode==1;
             if (!_setup.Dash) { _setup.OmniDash = false; PauseMenuHelper.SetButtonLabel(_omni.gameObject, "[ ] Omnidirectional dash"); }
             foreach (var button in _fileButtons) if (button != null) button.interactable = _launcher.CanLaunch;
             PauseMenuHelper.SetButtonLabel(_toggle.gameObject, _toggleLabel());

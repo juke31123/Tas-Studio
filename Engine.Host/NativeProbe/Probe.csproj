@@ -1,10 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><TargetFramework>netstandard2.1</TargetFramework><AssemblyName>TasEngineProbe</AssemblyName><EnableDefaultCompileItems>false</EnableDefaultCompileItems><EnableDefaultNoneItems>false</EnableDefaultNoneItems><LangVersion>latest</LangVersion></PropertyGroup>
   <ItemGroup>
-    <Compile Include="Probe.cs;CollisionProbe.cs" />
+    <Compile Include="Probe.cs;CollisionProbe.cs;HotMapProbe.cs;TrajectoryProbe.cs;PreviewInteractionProbe.cs;ReferenceWorldCheckpoint.cs;ReferenceGeometryCapture.cs;PerformanceProbe.cs;../../Tests/WorldPerformanceTests.cs" />
+    <Reference Include="UnityEngine.TilemapModule"><HintPath>$(ManagedDir)/UnityEngine.TilemapModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.GridModule"><HintPath>$(ManagedDir)/UnityEngine.GridModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="Recharge.ModApi"><HintPath>$(ManagedDir)/Recharge.ModApi.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="Assembly-CSharp"><HintPath>$(ManagedDir)/Assembly-CSharp.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.CoreModule"><HintPath>$(ManagedDir)/UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.AnimationModule"><HintPath>$(ManagedDir)/UnityEngine.AnimationModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.Physics2DModule"><HintPath>$(ManagedDir)/UnityEngine.Physics2DModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.JSONSerializeModule"><HintPath>$(ManagedDir)/UnityEngine.JSONSerializeModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="TasStudio"><HintPath>../../bin/Release/netstandard2.1/TasStudio.dll</HintPath><Private>false</Private></Reference>

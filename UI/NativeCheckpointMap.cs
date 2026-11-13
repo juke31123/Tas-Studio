@@ -28,6 +28,7 @@ namespace Igtap.Tas.UI
         private int _revision=-1,_selected=-1,_panX,_panY;
         private int _pendingSequence;
         private bool _panning;
+        private string _windowTitle="",_requestedMapKey;
         private SearchCheckpoint[] _dragPoints;
         private string _dragSignature;
         private int _dragIndex=-1,_dragX,_dragY;
@@ -40,6 +41,7 @@ namespace Igtap.Tas.UI
         public void Open()
         {
             if(_handle!=IntPtr.Zero){if(_visible){N.ShowWindow(_handle,9);N.SetForegroundWindow(_handle);}return;}
+            _windowTitle="";
             if(_className==null)
             {
                 _className="TasStudio.Checkpoints."+Guid.NewGuid().ToString("N");
@@ -53,6 +55,7 @@ namespace Igtap.Tas.UI
                 _owner,IntPtr.Zero,N.GetModuleHandle(null),IntPtr.Zero);
             if(_handle==IntPtr.Zero)throw new Win32Exception(Marshal.GetLastWin32Error());
             _scale=Math.Max(1,N.GetDpiForWindow(_handle)/96f);_theme.Scale(_scale);NativeTheme.DarkTitle(_handle);
+            _theme.WindowIcon(_handle);
             Add(1,"BUTTON","Refresh map");Add(2,"BUTTON","Fit goals");Add(3,"BUTTON","Center player");
             Add(4,"STATIC","Click empty space: add | Drag a point: move | Middle drag: pan | Wheel: zoom | Esc: cancel drag");
             Add(5,"LISTBOX","");Add(6,"STATIC","X");Add(7,"EDIT","0");Add(8,"STATIC","Y");Add(9,"EDIT","0");
@@ -62,7 +65,7 @@ namespace Igtap.Tas.UI
             Add(19,"STATIC","");
             if(View!=null)N.SetWindowText(_controls[11],View.Options.GoalRadius.ToString("R",CultureInfo.InvariantCulture));
             foreach(var h in _controls.Values)N.SendMessage(h,0x30,_theme.Normal,new IntPtr(1));
-            _signature="";_revision=-1;Layout();Refresh();Send(new Command{Action="searchMap"});
+            _signature="";_revision=-1;_requestedMapKey=null;Layout();Refresh();
             if(_visible)N.ShowWindow(_handle,5);
         }
         private void Add(int id,string kind,string text)
@@ -195,6 +198,12 @@ namespace Igtap.Tas.UI
         public void Refresh()
         {
             if(_handle==IntPtr.Zero||View==null)return;
+            var snapshot=_channel.Latest;
+            string title="Tas Studio - Checkpoint map - "+snapshot.LoadedMap;
+            if(title!=_windowTitle){N.SetWindowText(_handle,title);_windowTitle=title;}
+            bool stale=View.CapturedMapKey!=snapshot.LoadedMapKey||View.MapRevision==0;
+            if(stale&&View.CanStart&&!Pending&&_requestedMapKey!=snapshot.LoadedMapKey)
+            {_requestedMapKey=snapshot.LoadedMapKey;Send(new Command{Action="searchMap"});}
             string signature=SearchFiles.Hash(Points);
             if(signature!=_signature)
             {
@@ -208,7 +217,7 @@ namespace Igtap.Tas.UI
             bool editable=!View.Busy&&!View.Preview&&!Pending;
             if(!editable&&_dragIndex>=0)EndInteraction();
             foreach(int id in new[]{7,9,11,12,13,14,15,16,17})N.EnableWindow(_controls[id],editable);
-            string status=_error.Length>0?_error:Pending?"Applying checkpoint edit...":Points.Length==0?"Click the map to place the finish. Solid: blue | Hazard: red | Other: amber":
+            string status=_error.Length>0?_error:stale?"Waiting for current-map geometry. Pause the initialized TAS to capture it.":Pending?"Applying checkpoint edit...":Points.Length==0?"Click the map to place the finish. Solid: blue | Hazard: red | Other: amber":
                 Points.Length+" checkpoints, required in order. Final point is the finish. Drag numbered points to move them.";
             // Avoid invalidating a STATIC control on every 100 ms refresh.
             if(Text(19)!=status)N.SetWindowText(_controls[19],status);
@@ -257,7 +266,7 @@ namespace Igtap.Tas.UI
                 int saved=N.SaveDC(memory);N.IntersectClipRect(memory,map.Left,map.Top,map.Right,map.Bottom);
                 try
                 {
-                    foreach(var body in View?.Geometry??Array.Empty<SearchBody>())
+                    foreach(var body in View!=null&&View.CapturedMapKey==_channel.Latest?.LoadedMapKey?View.Geometry:Array.Empty<SearchBody>())
                     {
                         if(body.MaxX<WorldX(map.Left)||body.MinX>WorldX(map.Right)||body.MaxY<WorldY(map.Bottom)||body.MinY>WorldY(map.Top))continue;
                         uint color=body.Kind=="solid"?NativeTheme.Blue:body.Kind=="hazard"?NativeTheme.Red:NativeTheme.Amber;

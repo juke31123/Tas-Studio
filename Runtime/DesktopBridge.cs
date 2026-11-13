@@ -19,6 +19,9 @@ namespace Igtap.Tas.Runtime
         private readonly EditHistory _history = new EditHistory();
         private int _revision, _completedSequence;
         private Movie _observed;
+        private Movie _timelineMovie;
+        private int _timelinePage;
+        private FrameRow[] _timeline=Array.Empty<FrameRow>();
         private string _ack = "", _error = "";
         private bool _attached, _backgroundHeld, _background, _disposed;
         private double _nextSample, _nextFiles;
@@ -85,6 +88,12 @@ namespace Igtap.Tas.Runtime
                 throw new ArgumentException("Invalid desktop command.");
             switch (c.Action)
             {
+                case "trajectory":
+                    if (_session.Trajectory == null) throw new InvalidOperationException("The trajectory preview is unavailable.");
+                    _session.Trajectory.Configure(c.Authored, c.Count); break;
+                case "trajectoryRefresh":
+                    if (!_session.Active || !_session.Frozen) throw new InvalidOperationException("Pause the TAS before refreshing its trajectory snapshot.");
+                    _session.Trajectory?.Refresh(); break;
                 case "searchOpen": _session.Search.Open(); break;
                 case "searchMap": _session.Search.CaptureMap(); break;
                 case "searchCheckpoints": _session.Search.SetCheckpoints(c.SearchOptions?.Checkpoints??throw new ArgumentException("Missing checkpoints.")); break;
@@ -193,6 +202,7 @@ namespace Igtap.Tas.Runtime
                 var snapshot = new Snapshot {
                     Bindings = _session.Bindings.Copy(),
                     Mode = _session.Mode.ToString(), Status = _session.Status, Name = _session.FileName, Ack = _ack, Error = _error,
+                    LoadedMap=_session.Adapter.LoadedMapLabel,LoadedMapKey=_session.Adapter.LoadedMapKey,
                     Revision = _revision, CompletedSequence = _completedSequence, CanEditTimeline = _session.CanEditTimeline, TimelineInput = _session.UseTimelineInput, PendingEdits = _session.HasPendingEdits,
                     UndoCount = _history.UndoCount, RedoCount = _history.RedoCount, CanRecoverDraft = !_session.Active && _recoverable,
                     Cursor = _session.Cursor, Frames = editorMovie.Frames.Count, Fps = _session.Movie.FrameRate,
@@ -208,8 +218,12 @@ namespace Igtap.Tas.Runtime
                         Jump = _session.AuthoredInput.Down(Buttons.Jump), Dash = _session.AuthoredInput.Down(Buttons.Dash), Reset = _session.AuthoredInput.Down(Buttons.Reset), Menu = _session.AuthoredInput.Down(Buttons.Menu) },
                     Timeline = TimelinePage(editorMovie,page),
                     Prediction = stats.Prediction?.Explanation ?? stats.Message,
+                    TrajectoryEnabled = _session.Trajectory?.Enabled == true,
+                    TrajectoryFrames = _session.Trajectory?.Horizon ?? 280,
+                    TrajectoryStatus = _session.Trajectory?.Status ?? "Trajectory preview unavailable.",
                     Search = new SearchView { Options = _session.Search.Options.Copy(), Result = _session.Search.Result.Copy(),
                         Geometry=_session.Search.MapGeometry,MapRevision=_session.Search.MapRevision,Player=_session.Search.MapPlayer,
+                        CapturedMapKey=_session.Search.MapKey,
                         Busy = _session.Search.Busy,
                         CanStart = _session.Search.CanStart, CanAccept = _session.Search.CanAccept, Preview = _session.SearchPreview },
                     InputSource = stats.InputSource
@@ -220,6 +234,8 @@ namespace Igtap.Tas.Runtime
                     Row("Velocity X", current.Velocity.X, next?.Velocity.X), Row("Velocity Y", current.Velocity.Y, next?.Velocity.Y),
                     Row("Speed", current.Velocity.Magnitude, next?.Velocity.Magnitude),
                     new StatRow { Name = "State", Current = current.State.ToString(), Next = next?.State.ToString() ?? "--" },
+                    new StatRow { Name = "Can jump", Current = stats.Actions?.JumpText ?? "--", Next = stats.Prediction?.Actions?.JumpText ?? "--" },
+                    new StatRow { Name = "Can dash", Current = stats.Actions?.DashText ?? "--", Next = stats.Prediction?.Actions?.DashText ?? "--" },
                     Row("Air jumps", current.AirJumps, next?.AirJumps), Row("Dashes", current.AirDashes, next?.AirDashes),
                     Row("Momentum X", current.Momentum.X, next?.Momentum.X), Row("Momentum Y", current.Momentum.Y, next?.Momentum.Y)
                 };
@@ -230,18 +246,27 @@ namespace Igtap.Tas.Runtime
         private static StatRow Row(string label, float value, float? next) => new StatRow {
             Name = label, Current = value.ToString("0.000", CultureInfo.InvariantCulture), Next = next?.ToString("0.000", CultureInfo.InvariantCulture) ?? "--"
         };
-        private static FrameRow[] TimelinePage(Movie movie,int page)
+        private FrameRow[] TimelinePage(Movie movie,int page)
         {
-            var rows=new FrameRow[Math.Min(200,movie.Frames.Count-page)];
+            int count=Math.Min(200,movie.Frames.Count-page);
+            bool reuse=ReferenceEquals(movie,_timelineMovie) && page==_timelinePage && count==_timeline.Length;
+            var rows=reuse?_timeline:new FrameRow[count];bool copied=!reuse;
             for(int i=0;i<rows.Length;i++)
             {
                 var f=movie.Frames[page+i];
+                int pus=f.FixedTicks>=0?f.FixedTicks:f.PreviousFixedTicks;
+                bool pending=f.FixedTicks<0 && f.PreviousFixedTicks>=0;
+                bool jump=f.Input.Down(Buttons.Jump|Buttons.Jump2),dash=f.Input.Down(Buttons.Dash|Buttons.Dash2),reset=f.Input.Down(Buttons.Reset),menu=f.Input.Down(Buttons.Menu);
+                var old=rows[i];
+                if(old!=null && old.Frame==page+i && old.Pus==pus && old.PuTimingPending==pending && old.X==f.Input.X && old.Y==f.Input.Y &&
+                    old.Jump==jump && old.Dash==dash && old.Reset==reset && old.Menu==menu && old.Verified==(f.Expected!=null))continue;
+                // Published rows are immutable. Updating one observed PU/input
+                // must not modify an older snapshot being painted by the UI.
+                if(!copied){rows=(FrameRow[])rows.Clone();copied=true;}
                 rows[i]=new FrameRow {Frame=page+i,Pus=f.FixedTicks>=0?f.FixedTicks:f.PreviousFixedTicks,
-                    PuTimingPending=f.FixedTicks<0 && f.PreviousFixedTicks>=0,X=f.Input.X,Y=f.Input.Y,
-                    Jump=f.Input.Down(Buttons.Jump|Buttons.Jump2),Dash=f.Input.Down(Buttons.Dash|Buttons.Dash2),
-                    Reset=f.Input.Down(Buttons.Reset),Menu=f.Input.Down(Buttons.Menu),Verified=f.Expected!=null};
+                    PuTimingPending=pending,X=f.Input.X,Y=f.Input.Y,Jump=jump,Dash=dash,Reset=reset,Menu=menu,Verified=f.Expected!=null};
             }
-            return rows;
+            _timelineMovie=movie;_timelinePage=page;_timeline=rows;return rows;
         }
         private void ObserveMovie(bool preserveUndo = false)
         {

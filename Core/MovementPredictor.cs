@@ -2,9 +2,8 @@ using System;
 
 namespace Igtap.Tas.Core
 {
-    // First prediction backend: the game's ordinary free movement rules with
-    // unchanged contact assumptions. No live simulation or recorded-future probes.
-    // A later collision/world backend can implement IMotionPredictor instead.
+    // Lightweight telemetry fallback with unchanged contact assumptions. The
+    // optional game-code trajectory backend supplies collision-aware TAS stats.
     public sealed class MovementPredictor : IMotionPredictor
     {
         public MotionPrediction Predict(PlayerMotion current, MovementParameters p, FrameInput input,
@@ -22,6 +21,7 @@ namespace Igtap.Tas.Core
             if (tickCount > 16) return Unavailable("Too many physics ticks for a one-frame preview.");
             int ticks = (int)tickCount;
             if (input.Pressed(Buttons.Reset, previous)) return Unavailable("Respawn prediction is not available yet.", ticks);
+            if (input.Pressed(Buttons.Menu, previous)) return Unavailable("Game-menu transitions require the game-code forecast.", ticks);
             if (current.Dead || current.Cutscene == 2) return Unavailable("Death/respawn transition is not predicted.", ticks);
             if (current.Cutscene != 0 && current.Cutscene != 1) return Unavailable("This special movement mode is not predicted yet.", ticks);
             if (current.OnWall || current.FinalWallCling) return Unavailable("Wall interactions are not predicted yet.", ticks);

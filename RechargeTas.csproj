@@ -2,7 +2,7 @@
   <PropertyGroup>
     <TargetFramework>netstandard2.1</TargetFramework>
     <AssemblyName>TasStudio</AssemblyName>
-    <Version>0.17.1</Version>
+    <Version>0.19.8</Version>
     <Authors>Juke</Authors>
     <Company>Juke</Company>
     <Product>Tas Studio</Product>
@@ -16,6 +16,7 @@
     <Reference Include="UnityEngine.UIModule"><HintPath>$(ManagedDir)\UnityEngine.UIModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="Unity.TextMeshPro"><HintPath>$(ManagedDir)\Unity.TextMeshPro.dll</HintPath><Private>false</Private></Reference>
     <Compile Include="Core\**\*.cs;Runtime\**\*.cs;UI\**\*.cs;DesktopShared\*.cs;TasMod.cs" />
+    <EmbeddedResource Include="Assets\Tas.ico" LogicalName="TasStudio.Assets.Tas.ico" />
     <Reference Include="Recharge.ModApi"><HintPath>$(ManagedDir)\Recharge.ModApi.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="Assembly-CSharp"><HintPath>$(ManagedDir)\Assembly-CSharp.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.CoreModule"><HintPath>$(ManagedDir)\UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>

@@ -2,17 +2,38 @@ using System;
 using UnityEngine;
 using System.Linq;
 using Box2D;
+using System.Text.Json;
 
 namespace IGTAP.EngineSim
 {
     public sealed partial class PhysicsWorld
     {
+        public void StudioImportPlayerTriggerContacts(JsonElement start)
+        {
+            if(!start.TryGetProperty("playerTriggerContacts",out var contacts))return;
+            // ResetPlayer primes geometric overlaps as existing contacts. Only
+            // the exported native pairs may start with Stay; new overlaps must
+            // first emit Enter, which does not consume spike grace.
+            bool PlayerTrigger(Pair pair)=>pair.Trigger && (pair.A.Body==_player || pair.B.Body==_player);
+            _touching.RemoveWhere(PlayerTrigger);_pairsBefore.RemoveAll(pair=>PlayerTrigger(pair));
+            if(contacts.GetArrayLength()>20000)throw new InvalidOperationException("Too many initial trigger contacts.");
+            var nativeIds=_colliderList.ToDictionary(c=>c.Collider.GetInstanceID());
+            foreach(var contact in contacts.EnumerateArray())
+            {
+                if(contact.GetArrayLength()!=2 || !nativeIds.TryGetValue(contact[0].GetInt32(),out var self) || !nativeIds.TryGetValue(contact[1].GetInt32(),out var other) ||
+                    self.Body!=_player || other.Body==_player || !(self.Collider.isTrigger || other.Collider.isTrigger))
+                    throw new InvalidOperationException("Invalid native player trigger contact.");
+                var pair=new Pair(self,other,true).Overlapping();
+                if(_touching.Add(pair))_pairsBefore.Add(pair);
+            }
+        }
         // Native rendered-frame contacts retain their collider-pair identity
         // across a script transform write before the next PU. A temporary
         // broad-phase separation must not turn a continuing stay into enter.
         public bool StudioFrames;
         // Optional diagnostics only; candidates never depend on this observer.
         public Action<Collider2D, Collider2D, int> StudioContact;
+        public Action<MonoBehaviour, int, object, bool> StudioMessage;
         public object StudioLastContact;
         private void StudioQueued(Pair pair)
         {
@@ -45,6 +66,7 @@ namespace IGTAP.EngineSim
                 bool selfA=a.Body==_player; var self=selfA ? a : b; var other=selfA ? b : a;
                 c.GetWorldManifold(manifold); var local=c.GetManifold();
                 for(int i=0;i<local.pointCount;i++) result.Add(new {Self=self.Collider.GetInstanceID(),Other=other.Collider.GetInstanceID(),OtherName=other.Collider.name,
+                    Order=c.m_touchOrder,
                     X=manifold.points[i].x,Y=manifold.points[i].y,NX=(selfA ? -1 : 1)*manifold.normal.x,NY=(selfA ? -1 : 1)*manifold.normal.y,
                     Separation=manifold.separations[i],NormalImpulse=local.points[i].normalImpulse,TangentImpulse=local.points[i].tangentImpulse});
             }

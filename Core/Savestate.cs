@@ -19,25 +19,10 @@ namespace Igtap.Tas.Core
         // in full into the movie every second. User savestates retain full data.
         public WorldWitness CompactForReplay()
         {
-            var result = new WorldWitness();
-            var groups = new SortedDictionary<string, StringBuilder>(StringComparer.Ordinal);
-            string Group(string key) => key.Contains("Collider2D#") ? "scene-colliders" : key.Contains("Rigidbody2D#") ? "scene-bodies" :
-                key.Contains("/currentPlayerPath/") || key.Contains("/currentPlayerScales/") ? "course-paths" : null;
-            void Add(string group, string key, string value, char kind)
-            {
-                if (!groups.TryGetValue(group, out var builder)) groups[group] = builder = new StringBuilder();
-                builder.Append(kind).Append(key.Length).Append(':').Append(key).Append(value.Length).Append(':').Append(value);
-            }
-            foreach (var pair in Exact)
-            { string group = Group(pair.Key); if (group == null) result.Exact[pair.Key] = pair.Value; else Add(group, pair.Key, pair.Value ?? "null", 's'); }
-            foreach (var pair in Numbers)
-            { string group = Group(pair.Key); if (group == null) result.Numbers[pair.Key] = pair.Value; else Add(group, pair.Key, pair.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture), 'n'); }
-            foreach (var group in groups)
-            {
-                using var hash = System.Security.Cryptography.SHA256.Create();
-                result.Exact["digest/" + group.Key] = Convert.ToBase64String(hash.ComputeHash(Encoding.UTF8.GetBytes(group.Value.ToString())));
-            }
-            return result;
+            using var builder=new WorldWitnessBuilder(true);
+            foreach(var pair in Exact)builder.Exact(pair.Key,pair.Value);
+            foreach(var pair in Numbers)builder.Number(pair.Key,pair.Value);
+            return builder.Build();
         }
 
         public void Validate()

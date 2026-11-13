@@ -22,6 +22,12 @@ namespace Igtap.Tas.Runtime
             return (T)field.GetValue(player);
         }
         private static MotionVector Vector(Vector2 v) => new MotionVector(v.x, v.y);
+        public static PlayerActionAvailability Actions(Movement p, PlayerMotion motion, MovementParameters parameters)
+            => PlayerActionAvailability.Evaluate(motion,parameters,ActionContext(p));
+        public static PlayerActionContext ActionContext(Movement p) => new PlayerActionContext {
+                MenuOpen=p.pauseMenu==null || p.pauseMenu.menuOpen, GamePaused=p.GamePaused,
+                WallJumpUnlocked=p.wallJumpUnlocked, WallJumps=p.wallJumpsLeft, CanHyper=Read<bool>(p,"canHyper")
+            };
         public static PlayerMotion Capture(Movement p, SimulationTimers timers, out MovementParameters parameters)
         {
             var body = p.GetComponent<Rigidbody2D>();

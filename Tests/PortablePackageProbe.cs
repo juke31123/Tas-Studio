@@ -48,6 +48,19 @@ internal static class PortablePackageProbe
             foreach (string name in new[] { "native.trace.json", "start.json", "world.json", "animation.json" })
                 File.Copy(Path.Combine(source, "engine", name), Path.Combine(copy, "engine", name));
             var job = SearchFiles.Read<SearchJob>(Path.Combine(source, "job.json"));
+            var world=JObject.Parse(File.ReadAllText(Path.Combine(copy,"engine","world.json")));
+            bool wrongMapRejected=false;
+            if(world["customMap"] is JObject map)
+            {
+                job.CustomMapId=(string)map["id"];job.CustomMapHash=(string)map["hash"];
+                string wrong=Path.Combine(data,"wrong-map-job");Directory.CreateDirectory(Path.Combine(wrong,"engine"));
+                foreach(string name in new[]{"native.trace.json","start.json","world.json","animation.json"})File.Copy(Path.Combine(copy,"engine",name),Path.Combine(wrong,"engine",name));
+                var invalid=job.CopyForSearch();invalid.CustomMapId="wrong-map";SearchFiles.Write(Path.Combine(wrong,"job.json"),invalid);
+                Run(executable,"solve \""+Path.Combine(wrong,"job.json")+"\"",host,true);
+                var rejected=SearchFiles.Read<SearchResult>(Path.Combine(wrong,"result.json"));
+                if(rejected.Status!="Error"||!rejected.Message.Contains("different custom map"))throw new Exception("Portable host failed to reject geometry from another map.");
+                wrongMapRejected=true;Console.WriteLine("PASS: portable host rejects mismatched custom-map geometry.");
+            }
             job.Options.Mode = "wave"; job.Options.Seconds = job.Options.Checkpoints.Length>0?20:5; job.Options.Workers = 2;
             SearchFiles.Write(Path.Combine(copy, "job.json"), job);
             Run(executable, "solve \"" + Path.Combine(copy, "job.json") + "\"", host);
@@ -58,9 +71,19 @@ internal static class PortablePackageProbe
                 throw new Exception("Isolated search did not complete the ordered route.");
             if(result.Inputs.Length>job.Options.FrameLimit||job.Options.SecondsPerCheckpoint&&result.CommittedFrames!=result.Inputs.Length)
                 throw new Exception("Isolated search did not respect the section frame limit or checkpoint commits.");
+            // A self-contained process also initializes the captured world;
+            // leave headroom beyond the pure-model one-second budget checks.
+            job.Options.Mode="beam";job.Options.Seconds=5;job.Options.SecondsPerCheckpoint=false;job.Options.UseCheckpointLookahead=false;
+            SearchFiles.Write(Path.Combine(copy,"job.json"),job);
+            Run(executable,"solve \""+Path.Combine(copy,"job.json")+"\"",host);
+            var beam=SearchFiles.Read<SearchResult>(Path.Combine(copy,"result.json"));
+            if(!beam.Finished||beam.Inputs.Length==0||beam.Seconds<job.Options.Seconds||beam.Refinements==0)
+                throw new Exception("Portable Beam did not retain a candidate and refine for the full budget.");
+            Console.WriteLine("PASS: portable Beam refines its candidate for the full search budget.");
             if (EngineHostPackage.HashFile(game) != gameHash) throw new Exception("Native game assembly changed.");
             SearchFiles.Write(Path.Combine(data, "portable-validation.json"), new { Passed = true, Algorithm = result.Algorithm,
                 CandidateFrames = result.Inputs.Length, result.Evaluated, result.SimulatedFrames, result.Pus, result.Seconds,result.CheckpointsReached,result.CheckpointCount,
+                job.CustomMapId,WrongMapRejected=wrongMapRejected,BeamFrames=beam.Inputs.Length,BeamSeconds=beam.Seconds,BeamRefinements=beam.Refinements,
                 job.Options.UseFrameTarget,job.Options.FrameAllowance,job.Options.SecondsPerCheckpoint,result.LookaheadSimulatedFrames,NativeGameUnchanged = true,
                 Scope = "Portable setup, cache repair and external search. Does not replace in-game candidate verification.", SearchDirectory = copy });
             Console.WriteLine("PASS: isolated " + result.Algorithm + " search found " + result.Inputs.Length + " input frames; native files unchanged.");
@@ -68,11 +91,11 @@ internal static class PortablePackageProbe
         }
         catch (Exception error) { Console.Error.WriteLine(error); return 1; }
     }
-    private static void Run(string executable, string arguments, string workingDirectory)
+    private static void Run(string executable, string arguments, string workingDirectory,bool expectFailure=false)
     {
         using var process = Process.Start(new ProcessStartInfo { FileName = executable, Arguments = arguments, WorkingDirectory = workingDirectory,
             UseShellExecute = false, CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden }) ?? throw new IOException("Portable executable did not start.");
         if (!process.WaitForExit(120000)) { process.Kill(); throw new TimeoutException("Portable executable timed out."); }
-        if (process.ExitCode != 0) throw new IOException("Portable executable failed: " + arguments + " (" + process.ExitCode + ").");
+        if ((process.ExitCode != 0)!=expectFailure) throw new IOException("Unexpected portable executable result: " + arguments + " (" + process.ExitCode + ").");
     }
 }

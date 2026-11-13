@@ -39,22 +39,33 @@ namespace Igtap.Tas.Runtime
         public string MainMenuScene => ConfiguredStart.MenuScene;
         public string SceneFor(TasStartSetup setup) => ConfiguredStart.SceneFor(setup);
         public void FinishWorldSetup(TasStartSetup setup) => ConfiguredStart.FinishWorldSetup(setup);
+        public void PrepareStart(TasStartSetup setup,bool recording)=>CustomMaps.PrepareStart(setup,recording);
+        public bool PrepareCustomMap(TasStartSetup setup)=>CustomMaps.LoadDuringBarrier(setup,Player);
+        public void ValidateLoadedMap(TasStartSetup setup,bool verifyFiles=false)=>CustomMaps.RequireLoaded(setup,verifyFiles);
+        public string LoadedMapLabel=>CustomMaps.CurrentLabel;
+        public string LoadedMapKey=>CustomMaps.CurrentKey;
         public bool CanLoadScene(string scene) => Application.CanStreamedLevelBeLoaded(scene);
         private bool _configuredEnvironment;
         private int _originalDifficulty;
         private bool _originalVman;
+        private bool _originalMetaVman;
+        private double _originalVmanTime,_originalVmanScore;
+        private Dictionary<globalStats.globalUpgradeSet,double> _originalVmanUpgrades;
         private Movement.placesToStart _originalOverride;
         public int CurrentDifficulty => globalStats.difficultyLevel;
         public void BeginRunEnvironment(int difficulty, bool fresh)
         {
             _originalDifficulty = globalStats.difficultyLevel;
             _originalVman = VmanScript.isCurrentlyVman;
+            _originalMetaVman=VmanScript.metaVman;_originalVmanTime=VmanScript.vmanTimeLeft;_originalVmanScore=VmanScript.vmanScore;_originalVmanUpgrades=VmanScript.VmanStatingUpgrades;
+            CustomMaps.Begin();
             _originalOverride = globalStats.placesToStartOverride;
             _configuredEnvironment = true;
             globalStats.difficultyLevel = difficulty;
             if (fresh)
             {
                 VmanScript.isCurrentlyVman = false;
+                VmanScript.metaVman=false;VmanScript.vmanScore=VmanScript.vmanTimeLeft=0;
                 globalStats.placesToStartOverride = Movement.placesToStart.NORMAL;
             }
         }
@@ -63,6 +74,8 @@ namespace Igtap.Tas.Runtime
             if (!_configuredEnvironment) return;
             globalStats.difficultyLevel = _originalDifficulty;
             VmanScript.isCurrentlyVman = _originalVman;
+            VmanScript.metaVman=_originalMetaVman;VmanScript.vmanTimeLeft=_originalVmanTime;VmanScript.vmanScore=_originalVmanScore;VmanScript.VmanStatingUpgrades=_originalVmanUpgrades;
+            CustomMaps.End();
             globalStats.placesToStartOverride = _originalOverride;
             _configuredEnvironment = false;
         }
@@ -99,6 +112,7 @@ namespace Igtap.Tas.Runtime
         }
         public void ReleaseSimulation()
         {
+            WorldCheckpoint.Reset();
         }
         public object Diagnostics()
         {
@@ -160,6 +174,7 @@ namespace Igtap.Tas.Runtime
             };
         }
         public WorldWitness CaptureWorld() => WorldCheckpoint.Capture();
+        public WorldWitness CaptureReplayWorld() => WorldCheckpoint.CaptureReplay();
         public MotionVector SearchWorldPosition() => SearchExport.PlayerWorld(Player);
         public Core.Search.AbilityResources SearchResources() => new Core.Search.AbilityResources { AirJumps = Player.airJumpsLeft,
             Dashes = Player.airDashesLeft, WallJumps = Player.wallJumpsLeft, Alive = IsAlive && !(bool)_deadField.GetValue(Player) };

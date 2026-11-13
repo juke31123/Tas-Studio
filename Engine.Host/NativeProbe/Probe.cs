@@ -41,6 +41,7 @@ public sealed class EngineProbe : MonoBehaviour
     double began; string dir, saved; bool failing;
     Movie reference;
     int referenceLimit, referenceCompared, referenceMismatchFrame = -1;
+    int referenceCaptureStart;
     int referenceUnprobed;
     string referenceMismatch;
     float searchGoalX,searchGoalY;
@@ -56,10 +57,13 @@ public sealed class EngineProbe : MonoBehaviour
     string compactHash,compactName;
     int physicsDiagnosticsEnd;
     int timeoutSeconds = 180;
+    int captureFrames;
     PlatformMover[] movers;
     readonly Dictionary<int,bool> moverSleep=new Dictionary<int,bool>();
     Harmony installedHarmony;
     bool shadowCut, shadowRecent;
+    bool checkActions;
+    int actionChecks, groundJumps, wallJumps, airJumps, dashes;
     object Get(string name) => session.GetType().GetProperty(name,Flags).GetValue(session);
     object Call(string name, params object[] args) => session.GetType().GetMethod(name,Flags).Invoke(session,args);
     void Set(string name, object value) => session.GetType().GetField(name,Flags).SetValue(session,value);
@@ -67,7 +71,7 @@ public sealed class EngineProbe : MonoBehaviour
     string Mode => Get("Mode").ToString(); bool Frozen => (bool)Get("Frozen"); bool Active => (bool)Get("Active"); int Cursor => (int)Get("Cursor");
     void Log(string s) => File.AppendAllText(Path.Combine(Root,"result.log"), DateTime.UtcNow.ToString("O") + " " + s + "\n");
     string SaveHash() => (string)session.GetType().Assembly.GetType("Igtap.Tas.Runtime.EnvironmentFingerprint").GetMethod("Saves",Flags).Invoke(null,null);
-    void Fail(string s) { if(failing)return; failing=true; Log("FAIL "+s); try { if(Active)Queue(()=>Call("Stop")); else Application.Quit(); }catch{Application.Quit();} }
+    void Fail(string s) { if(failing)return; failing=true; Log("FAIL "+s); try { if(trace!=null && dir!=null){SearchFiles.Write(Path.Combine(dir,"native.trace.json"),trace);TrajectoryProbe.SaveFailure(dir);} }catch(Exception error){Log("Diagnostic save failed: "+error.Message);} try { if(Active)Queue(()=>Call("Stop")); else Application.Quit(); }catch{Application.Quit();} }
     void Start()
     {
         try { InitializeCapture(); }
@@ -77,10 +81,12 @@ public sealed class EngineProbe : MonoBehaviour
     {
         Instance=this; began=Time.realtimeSinceStartupAsDouble;
         if(File.Exists(Path.Combine(Root,"timeout-seconds.txt"))) timeoutSeconds=int.Parse(File.ReadAllText(Path.Combine(Root,"timeout-seconds.txt")));
+        if(File.Exists(Path.Combine(Root,"capture-frames.txt")))captureFrames=int.Parse(File.ReadAllText(Path.Combine(Root,"capture-frames.txt")));
         if(File.Exists(Path.Combine(Root,"search-modes.txt")))searchModes=File.ReadAllText(Path.Combine(Root,"search-modes.txt")).Trim().Split(',');
         if(searchModes.Length<1 || searchModes.Any(m=>m!="chain" && m!="beam" && m!="wave"))throw new InvalidOperationException("Invalid smoke search modes.");
         if(timeoutSeconds<30 || timeoutSeconds>1800) throw new ArgumentOutOfRangeException("Native test timeout");
         if(File.Exists(Path.Combine(Root,"physics-end.txt"))) physicsDiagnosticsEnd=int.Parse(File.ReadAllText(Path.Combine(Root,"physics-end.txt")));
+        checkActions=File.Exists(Path.Combine(Root,"action-stats.txt"));
         if(File.Exists(Path.Combine(Root,"search-range.txt"))) {
             var range=File.ReadAllText(Path.Combine(Root,"search-range.txt")).Trim().Split(','); searchStart=int.Parse(range[0]); searchEnd=int.Parse(range[1]);
         }
@@ -93,12 +99,20 @@ public sealed class EngineProbe : MonoBehaviour
             if (reference.StartSetup == null || reference.Frames.Count == 0) throw new InvalidOperationException("A configured nonempty reference TAS is required.");
             if (reference.Seed != 12345 || reference.WarmupFrames != 10) throw new NotSupportedException("This capture driver requires the standard seed and ten-frame bootstrap.");
             referenceLimit = File.Exists(Path.Combine(Root, "reference-end.txt")) ? int.Parse(File.ReadAllText(Path.Combine(Root, "reference-end.txt"))) : reference.Frames.Count;
+            referenceCaptureStart = File.Exists(Path.Combine(Root,"reference-start.txt")) ? int.Parse(File.ReadAllText(Path.Combine(Root,"reference-start.txt"))) : 0;
             if (referenceLimit < 1 || referenceLimit > reference.Frames.Count) throw new ArgumentOutOfRangeException("Reference end frame");
+            if(referenceCaptureStart<0 || referenceCaptureStart>=referenceLimit)throw new ArgumentOutOfRangeException("Reference capture start frame");
             rates = new[] { reference.FrameRate };
         }
         var harmony = installedHarmony = new Harmony("tas.engine.capture");
+        if(checkActions) harmony.Patch(typeof(Movement).GetMethod("getPlayerControlledInput",Flags),
+            prefix:new HarmonyMethod(typeof(EngineProbe),nameof(BeforeControlledInput)),postfix:new HarmonyMethod(typeof(EngineProbe),nameof(AfterControlledInput)));
         harmony.Patch(typeof(Movement).GetMethod("FixedUpdate",Flags), prefix:new HarmonyMethod(typeof(EngineProbe),nameof(BeforePu)),postfix:new HarmonyMethod(typeof(EngineProbe),nameof(AfterMovementPu)));
         if(physicsDiagnosticsEnd>0) {
+            foreach (string callback in new[] {"OnCollisionEnter2D", "OnCollisionStay2D", "OnCollisionExit2D"})
+                harmony.Patch(typeof(Movement).GetMethod(callback, Flags),
+                    prefix:new HarmonyMethod(typeof(EngineProbe),nameof(BeforePlayerCollision)),
+                    postfix:new HarmonyMethod(typeof(EngineProbe),nameof(AfterPlayerCollision)));
             harmony.Patch(typeof(Movement).GetMethod("Start",Flags),prefix:new HarmonyMethod(typeof(EngineProbe),nameof(BeforePlayerStart)),postfix:new HarmonyMethod(typeof(EngineProbe),nameof(AfterPlayerStart)));
             harmony.Patch(AppDomain.CurrentDomain.GetAssemblies().Single(a=>a.GetName().Name=="TasStudio").GetType("Igtap.Tas.Runtime.ConfiguredStart").GetMethod("Apply",Flags),
                 prefix:new HarmonyMethod(typeof(EngineProbe),nameof(BeforeConfiguredStart)),postfix:new HarmonyMethod(typeof(EngineProbe),nameof(AfterConfiguredStart)));
@@ -122,6 +136,43 @@ public sealed class EngineProbe : MonoBehaviour
     }
     sealed class AfterPhysicsMarker {} sealed class EndMarker {} sealed class AfterDelayedMarker {}
     static void BeforeMenu(pauseMenuScript __instance) => MenuEvent("before-menu", __instance);
+    sealed class ActionCheck
+    {
+        public PlayerActionAvailability Ready;
+        public int Air, Wall, Dashes;
+        public bool JumpBuffered, DashBuffered, JumpCut;
+    }
+    static void BeforeControlledInput(Movement __instance,out ActionCheck __state)
+    {
+        __state=null;var p=Instance;if(p==null || !p.checkActions || !p.Open) return;
+        try {
+            var telemetry=AppDomain.CurrentDomain.GetAssemblies().Single(a=>a.GetName().Name=="TasStudio").GetType("Igtap.Tas.Runtime.PlayerTelemetry");
+            object[] args={__instance,null,null};var motion=telemetry.GetMethod("Capture",Flags).Invoke(null,args);
+            var availability=(PlayerActionAvailability)telemetry.GetMethod("Actions",Flags).Invoke(null,new[]{__instance,motion,args[2]});
+            __state=new ActionCheck {Ready=availability,Air=__instance.airJumpsLeft,Wall=__instance.wallJumpsLeft,Dashes=__instance.airDashesLeft,
+                JumpBuffered=(bool)typeof(Movement).GetField("jumpBuffer",Flags).GetValue(__instance),
+                DashBuffered=(bool)typeof(Movement).GetField("dashBuffer",Flags).GetValue(__instance),
+                JumpCut=(bool)typeof(Movement).GetField("jumpCutBuffer",Flags).GetValue(__instance)};
+        }catch(Exception error){p.Fail("Action readiness capture: "+error);}
+    }
+    static void AfterControlledInput(Movement __instance,ActionCheck __state)
+    {
+        var p=Instance;if(p==null || __state==null || p.failing) return;
+        try {
+            var before=__state;
+            bool jumped=before.JumpBuffered && !(bool)typeof(Movement).GetField("jumpBuffer",Flags).GetValue(__instance);
+            bool dashed=__instance.airDashesLeft<before.Dashes;
+            if(dashed!=(before.DashBuffered && before.Ready.CanDash)) throw new Exception("Dash readiness disagrees with native consumption.");
+            // Readiness means a fresh press, which clears jump cut in Update.
+            // An old buffered press plus release may change Y inside this method.
+            if(!before.JumpCut && jumped!=(before.JumpBuffered && before.Ready.CanJump)) throw new Exception("Jump readiness disagrees with native consumption.");
+            if(jumped && !before.JumpCut && (__instance.airJumpsLeft<before.Air)!=before.Ready.UsesAirJump)
+                throw new Exception("Air-jump label disagrees with the consumed native resource.");
+            if(jumped){if(__instance.airJumpsLeft<before.Air)p.airJumps++;else if(__instance.wallJumpsLeft<before.Wall)p.wallJumps++;else p.groundJumps++;}
+            if(dashed)p.dashes++;
+            p.actionChecks++;
+        }catch(Exception error){p.Fail("Action readiness at frame "+p.frame+": "+error);}
+    }
     static void AfterMenu(pauseMenuScript __instance) => MenuEvent("after-menu", __instance);
     static void BeforeMovementUpdate(Movement __instance) => MenuEvent("before-movement", __instance.pauseMenu);
     static void MenuEvent(string phase, pauseMenuScript menu)
@@ -142,6 +193,7 @@ public sealed class EngineProbe : MonoBehaviour
     }
     void OnDestroy()
     {
+        if(checkActions) SearchFiles.Write(Path.Combine(Root,"action-stats-result.json"),new {Passed=!failing&&actionChecks>0,Checks=actionChecks,GroundJumps=groundJumps,WallJumps=wallJumps,AirJumps=airJumps,Dashes=dashes});
         installedHarmony?.UnpatchAll("tas.engine.capture");
         var loop = PlayerLoop.GetCurrentPlayerLoop(); RemoveProbeMarkers(ref loop); PlayerLoop.SetPlayerLoop(loop);
         if (ReferenceEquals(Instance, this)) Instance = null;
@@ -164,7 +216,14 @@ public sealed class EngineProbe : MonoBehaviour
     bool Open => trace!=null && !failing && (bool)session.GetType().GetField("_frameOpen",Flags).GetValue(session) && !Frozen && Mode=="Recording";
     void Sample(string phase)
     {
-        trace.Samples.Add((SimulationSample)capture.GetMethod("Sample",Flags).Invoke(null,new object[]{session,frame,pu,phase}));
+        if(frame<referenceCaptureStart)return;
+        trace.Samples.Add((SimulationSample)capture.GetMethod("Sample",Flags).Invoke(null,new object[]{session,frame-trace.StartFrame,pu,phase}));
+        if(referenceCaptureStart>0 && phase=="frame-end")
+        {
+            var player=(Movement)Get("Adapter").GetType().GetProperty("Player",Flags).GetValue(Get("Adapter"));
+            var info=player.animator.GetCurrentAnimatorStateInfo(0);
+            File.AppendAllText(Path.Combine(Root,"animation-events.jsonl"),Newtonsoft.Json.JsonConvert.SerializeObject(new{Frame=frame,Hash=info.fullPathHash,Time=info.normalizedTime,Speed=player.animator.speed,Parameter=player.animator.GetInteger("Animation")})+"\n");
+        }
         if (frame < physicsDiagnosticsEnd) MoverDiagnostic(phase);
     }
     void MoverDiagnostic(string phase)
@@ -185,6 +244,21 @@ public sealed class EngineProbe : MonoBehaviour
         File.AppendAllText(Path.Combine(Root,"mover-events.jsonl"),Newtonsoft.Json.JsonConvert.SerializeObject(new {frame,pu,phase,Fields=fields})+"\n");
     }
     static void BeforePlayerStart(Movement __instance)=>BootstrapPhysics("before-start",__instance);
+    static void BeforePlayerCollision(Movement __instance, Collision2D collision, MethodBase __originalMethod) => PlayerCollision(__instance, collision, __originalMethod.Name, "before");
+    static void AfterPlayerCollision(Movement __instance, Collision2D collision, MethodBase __originalMethod) => PlayerCollision(__instance, collision, __originalMethod.Name, "after");
+    static void PlayerCollision(Movement player, Collision2D collision, string callback, string phase)
+    {
+        var p=Instance; if(p==null || !p.Open || p.frame>=p.physicsDiagnosticsEnd) return;
+        var velocity=player.Velocity;
+        var contacts=new List<object>();
+        for(int i=0;i<collision.contactCount;i++) {
+            var c=collision.GetContact(i);
+            contacts.Add(new {X=c.point.x,Y=c.point.y,NX=c.normal.x,NY=c.normal.y,c.separation});
+        }
+        File.AppendAllText(Path.Combine(Root,"player-collision-events.jsonl"),Newtonsoft.Json.JsonConvert.SerializeObject(new {
+            p.frame,p.pu,callback,phase,Other=collision.collider?.GetInstanceID(),Name=collision.collider?.name,
+            Velocity=new {velocity.x,velocity.y},Contacts=contacts})+"\n");
+    }
     static void AfterPlayerStart(Movement __instance)=>BootstrapPhysics("after-start",__instance);
     static void BeforeConfiguredStart(Movement player)=>BootstrapPhysics("before-configured-start",player);
     static void AfterConfiguredStart(Movement player)=>BootstrapPhysics("after-configured-start",player);
@@ -279,7 +353,7 @@ public sealed class EngineProbe : MonoBehaviour
         {
             var movie=(Movie)p.Get("Movie");
             var recorded = movie.Frames[p.frame];
-            p.trace.Inputs.Add(recorded.Input);p.Sample("frame-end");
+            if(p.frame>=p.referenceCaptureStart){p.trace.Inputs.Add(recorded.Input);p.trace.PreparedNextFrames.Add(!p.Frozen);p.Sample("frame-end");}
             if (p.reference != null)
             {
                 var expected = p.reference.Frames[p.frame];
@@ -292,10 +366,16 @@ public sealed class EngineProbe : MonoBehaviour
                 p.referenceCompared++;
             }
             p.frame++;p.pu=0;
+            if(p.stage==51)
+            {TrajectoryProbe.ObserveLive(p.session);p.Set("AuthoredInput",p.InputForFrame());}
+            else if(File.Exists(Path.Combine(Root,"trajectory-pu-steps.txt")))TrajectoryProbe.ObserveLive(p.session);
             if (p.reference != null)
             {
                 if (p.frame < p.referenceLimit) p.Set("AuthoredInput", p.reference.Frames[p.frame].Input);
                 else { p.stage = 3; p.Queue(p.FinishReference); }
+                // TogglePause finishes the frame opened at the next loop
+                // boundary. Queue one row early to stop at the requested cursor.
+                if(p.frame==p.referenceCaptureStart-1 && p.referenceCaptureStart>1){p.stage=5;p.Queue(()=>p.Call("TogglePause"));}
             }
         }
         catch(Exception e){p.Fail(e.ToString());}
@@ -309,26 +389,55 @@ public sealed class EngineProbe : MonoBehaviour
             if(Time.realtimeSinceStartupAsDouble-began>timeoutSeconds){Fail("timeout "+Mode);return;}
             if(Mode=="Desync"){Fail(Get("Status").ToString());return;}
             if (reference != null) { UpdateReference(); return; }
-            if(stage==0){if(!(bool)Get("IsMainMenu")||Time.realtimeSinceStartupAsDouble-began<3)return;saved=SaveHash();stage=1;NewRun();}
+            if(stage==0){if(!(bool)Get("IsMainMenu")||Time.realtimeSinceStartupAsDouble-began<3||!HotMapProbe.Ready(Root))return;saved=SaveHash();stage=1;NewRun();}
             else if(stage==1&&Mode=="Recording"&&Frozen)
             {
-                stage=2; Queue(()=>{dir=Path.Combine(Root,"fps-"+rates[rateIndex]);capture.GetMethod("Export",Flags).Invoke(null,new object[]{session,dir});trace=SearchFiles.Read<SimulationTrace>(Path.Combine(dir,"native.trace.json"));frame=pu=0;Set("UseAuthoredInput",true);NextFrame();});
+                stage=2; Queue(()=>{dir=Path.Combine(Root,"fps-"+rates[rateIndex]);PreviewInteractionProbe.Prepare(Root);capture.GetMethod("Export",Flags).Invoke(null,new object[]{session,dir});HotMapProbe.CheckCapture(session,Root,dir);trace=SearchFiles.Read<SimulationTrace>(Path.Combine(dir,"native.trace.json"));frame=pu=0;Set("UseAuthoredInput",true);Set("AuthoredInput",InputForFrame());if(TrajectoryProbe.Begin(session,Root,rates[rateIndex]))stage=50;else NextFrame();});
+            }
+            else if(stage==50 && Frozen && TrajectoryProbe.Ready(session,dir))
+            {
+                if(File.Exists(Path.Combine(Root,"trajectory-live.txt"))) {stage=51;trace.AdvanceMode="continuous";Queue(()=>Call("TogglePause"));}
+                else {stage=4;Queue(NextFrame);}
+            }
+            else if(stage==51 && !Frozen && frame>=(captureFrames>0?captureFrames:rates[rateIndex]))
+            {stage=52;Queue(()=>Call("TogglePause"));}
+            else if(stage==52 && Frozen)
+            {
+                stage=3;Queue(()=>{trace.Validate();TrajectoryProbe.Check(trace,dir);TrajectoryProbe.CheckLive(session,dir);SearchFiles.Write(Path.Combine(dir,"native.trace.json"),trace);Log("Captured live trajectory "+rates[rateIndex]+" FPS, "+trace.Inputs.Count+" frames");trace=null;Call("Stop");});
             }
             else if(stage==2&&Frozen&&Cursor==frame)
             {
-                if(frame>=rates[rateIndex]){stage=3;Queue(()=>{trace.Validate();SearchFiles.Write(Path.Combine(dir,"native.trace.json"),trace);Log("Captured "+rates[rateIndex]+" FPS, "+trace.Inputs.Count+" frames, "+trace.Samples.Count+" samples");trace=null;Call("Stop");});}
+                if(frame>0 && TrajectoryProbe.ShouldStart(Root,frame)){stage=50;Queue(()=>{Set("AuthoredInput",InputForFrame());TrajectoryProbe.Begin(session,Root,rates[rateIndex],frame);});}
+                else if(frame>=(captureFrames>0?captureFrames:rates[rateIndex])){stage=3;Queue(()=>{trace.Validate();TrajectoryProbe.Check(trace,dir);if(File.Exists(Path.Combine(Root,"trajectory-pu-steps.txt")))TrajectoryProbe.CheckLive(session,dir);PreviewInteractionProbe.Check(trace,dir);if(File.Exists(Path.Combine(Root,"runtime-benchmark.txt")))PerformanceProbe.Run(session,dir);SearchFiles.Write(Path.Combine(dir,"native.trace.json"),trace);Log("Captured "+rates[rateIndex]+" FPS, "+trace.Inputs.Count+" frames, "+trace.Samples.Count+" samples");trace=null;Call("Stop");});}
                 else {stage=4;Queue(NextFrame);}
             }
             else if(stage==4&&Cursor==frame&&Frozen)stage=2;
-            else if(stage==3&&!Active){if(saved!=SaveHash())throw new Exception("Saved progress changed");if(++rateIndex<rates.Length){stage=1;NewRun();}else{Log("PASS captures complete; original saved progress unchanged");Application.Quit();enabled=false;}}
+            else if(stage==3&&!Active){if(saved!=SaveHash())throw new Exception("Saved progress changed");
+                if(File.Exists(Path.Combine(Root,"map-save-owner-test.txt"))){var saves=NavigatorSaves();if(saves.GetProperty("ActiveMapId",Flags).GetValue(null)!=null)throw new Exception("A previous map save still owns the TAS scene.");SearchFiles.Write(Path.Combine(Root,"map-save-isolation.json"),new{Passed=true,PreviousMapOwnerCleared=true,SavedProgressUnchanged=true});}
+                if(++rateIndex<rates.Length){stage=1;NewRun();}else{Log("PASS captures complete; original saved progress unchanged");Application.Quit();enabled=false;}}
         }
         catch(Exception e){Fail(e.ToString());}
     }
-    void NewRun()=>Queue(()=>{capture.GetMethod("BeginHistory",Flags).Invoke(null,null);capture.GetField("CollectHistory",Flags).SetValue(null,true);Set("FileName","engine-probe-"+rates[rateIndex]+"-"+DateTime.UtcNow.ToString("yyyyMMdd-HHmmss"));Call("StartConfiguredRecording",new TasStartSetup{Course=1,FrameRate=rates[rateIndex],Dash=true,DoubleJump=true,WallJump=true,OmniDash=true,AirDashes=2});});
-    void NextFrame(){int fps=rates[rateIndex];var input=new FrameInput{X=1};if(frame>=fps/10&&frame<fps/5)input.Held|=Buttons.Jump;if(frame==fps*2/5)input.Held|=Buttons.Dash;Set("AuthoredInput",input);Call("Step");}
+    void NewRun()=>Queue(()=>{capture.GetMethod("BeginHistory",Flags).Invoke(null,null);capture.GetField("CollectHistory",Flags).SetValue(null,true);Set("FileName","engine-probe-"+rates[rateIndex]+"-"+DateTime.UtcNow.ToString("yyyyMMdd-HHmmss"));
+        var setup=new TasStartSetup{Course=1,FrameRate=rates[rateIndex],Dash=true,DoubleJump=true,WallJump=true,OmniDash=true,AirDashes=2,RefillOrbs=true,Zippers=true,Light=true};
+        string file=Path.Combine(Root,"configured-start.json");if(File.Exists(file)){var settings=SearchFiles.Read<Newtonsoft.Json.Linq.JObject>(file);setup.CustomMapId=(string)settings["CustomMapId"]??"";if(setup.IsCustomMap)setup.Course=0;setup.VmanMode=(int)settings["VmanMode"];}
+        if(HotMapProbe.InstalledId!=null){setup.CustomMapId=HotMapProbe.InstalledId;setup.Course=0;}
+        if(File.Exists(Path.Combine(Root,"map-save-owner-test.txt"))){var saves=NavigatorSaves();saves.GetProperty("ActiveMapId",Flags).SetValue(null,setup.CustomMapId);saves.GetProperty("StartedFresh",Flags).SetValue(null,false);}
+        Call("StartConfiguredRecording",setup);});
+    static Type NavigatorSaves()=>AppDomain.CurrentDomain.GetAssemblies().Select(a=>a.GetType("Recharge.Module.Maps.MapSaves")??a.GetType("MapSaves")).First(t=>t!=null);
+    FrameInput InputForFrame(){int fps=rates[rateIndex];var input=new FrameInput{X=1};if(frame>=fps/10&&frame<fps/5)input.Held|=Buttons.Jump;
+        if(checkActions){if(frame==fps*7/10)input.Held|=Buttons.Jump;if(frame==fps*6/5)input.Held|=Buttons.Dash;}
+        else if(frame==fps*2/5)input.Held|=Buttons.Dash;return PreviewInteractionProbe.Input(frame,input);}
+    void NextFrame(){Set("AuthoredInput",InputForFrame());Call(File.Exists(Path.Combine(Root,"trajectory-pu-steps.txt")) && frame%2==0?"StepPu":"Step");}
 
     void UpdateReference()
     {
+        if(stage==50)
+        {
+            if(Frozen && TrajectoryProbe.Ready(session,dir)){stage=51;trace.AdvanceMode="continuous";Queue(()=>Call("TogglePause"));}
+            return;
+        }
+        if(stage==51)return;
         if(stage>=20){UpdateCompactReplay();return;}
         if(stage>=10) { UpdateSearchSmoke(); return; }
         if (stage == 0)
@@ -356,16 +465,24 @@ public sealed class EngineProbe : MonoBehaviour
                 if (difference == null && Math.Abs(reference.StartPuPhase - actual.StartPuPhase) > .000002) difference = "Reference starting PU phase differs.";
                 if (difference != null) { referenceMismatch = "Starting state: " + difference; referenceMismatchFrame = -1; Log(referenceMismatch); }
                 dir = Path.Combine(Root, "fps-" + reference.FrameRate);
-                capture.GetMethod("Export", Flags).Invoke(null, new object[] {session, dir});
+                if(referenceCaptureStart==0)CaptureReference();
+                else trace=new SimulationTrace(); // Advance to the chosen section without retaining earlier full-state samples.
                 if (physicsDiagnosticsEnd > 0) CollisionProbe.Capture(Root, ((Movement)Get("Adapter").GetType().GetProperty("Player",Flags).GetValue(Get("Adapter"))).gameObject.layer);
-                trace = SearchFiles.Read<SimulationTrace>(Path.Combine(dir, "native.trace.json"));
                 trace.AdvanceMode = "continuous";
                 foreach (var gate in UnityEngine.Object.FindObjectsByType<startGate>(FindObjectsSortMode.None)) gate.gameObject.AddComponent<GateContactProbe>();
                 frame = pu = 0;
                 Set("UseAuthoredInput", true); Set("AuthoredInput", reference.Frames[0].Input);
-                Call("TogglePause");
+                if(referenceCaptureStart==1){stage=5;Call("Step");}
+                else if(referenceCaptureStart==0 && TrajectoryProbe.Begin(session,Root,rates[rateIndex],frame))stage=50;
+                else Call("TogglePause");
                 Log("Reference " + reference.Name + ": capturing [0," + referenceLimit + ") at " + reference.FrameRate + " FPS.");
             });
+        }
+        else if(stage==5 && Frozen)
+        {
+            stage=2;
+            Queue(()=>{if(Cursor!=referenceCaptureStart)throw new Exception("Late capture did not pause at the requested frame.");CaptureReference();
+                if(TrajectoryProbe.Begin(session,Root,rates[rateIndex],frame))stage=50;else Call("TogglePause");});
         }
         else if (stage == 3 && !Active)
         {
@@ -374,9 +491,17 @@ public sealed class EngineProbe : MonoBehaviour
         }
     }
 
+    void CaptureReference()
+    {
+        capture.GetMethod("Export",Flags).Invoke(null,new object[]{session,dir});
+        trace=SearchFiles.Read<SimulationTrace>(Path.Combine(dir,"native.trace.json"));
+        trace.AdvanceMode="continuous";
+    }
+
     void FinishReference()
     {
         BenchmarkRuntime();
+        if(File.Exists(Path.Combine(Root,"trajectory-smoke.txt"))){TrajectoryProbe.Check(trace,dir);TrajectoryProbe.CheckLive(session,dir);}
         trace.Validate(); SearchFiles.Write(Path.Combine(dir, "native.trace.json"), trace);
         var adapter = Get("Adapter");
         var goal = (MotionVector)adapter.GetType().GetMethod("SearchWorldPosition", Flags).Invoke(adapter, null);
@@ -513,6 +638,9 @@ public sealed class EngineProbe : MonoBehaviour
             File.AppendAllText(Path.Combine(Root,"search-smoke-jobs.txt"),(string)Search.GetType().GetField("_directory",Flags).GetValue(Search)+"\n");
             var result=(SearchResult)SearchGet("Result");
             if(!result.Finished || result.Inputs.Length==0 || result.Simulator!=EngineSearchSpec.Backend) throw new InvalidOperationException("Engine search smoke failed: " + result.Status + " / " + result.Message);
+            var completedJob=(SearchJob)SearchGet("Job");
+            if(SearchMode=="beam"&&!completedJob.Options.SecondsPerCheckpoint&&result.Seconds<completedJob.Options.Seconds)
+                throw new InvalidOperationException("Beam ended before its full search-time budget.");
             SearchFiles.Write(Path.Combine(Root,"search-after.tas.json"),(Movie)Get("Movie"));
             if(SearchFiles.Hash((Movie)Get("Movie"))!=searchSourceHash) throw new InvalidOperationException("Search changed the source movie before acceptance.");
             stage=12; Queue(() => SearchCall("Verify")); Log("Verifying engine candidate in the native game.");
@@ -529,7 +657,7 @@ public sealed class EngineProbe : MonoBehaviour
                 if(job.Options.SecondsPerCheckpoint&&(result.CheckpointsReached!=job.Options.Checkpoints.Length||result.Inputs.Length<=job.Options.Horizon||result.Inputs.Length>job.Options.FrameLimit||result.LookaheadSimulatedFrames==0))
                     throw new InvalidOperationException("Checkpoint budget smoke did not exercise the allowance, ordered stages and lookahead.");
                 SearchFiles.Write(Path.Combine(Root,"search-"+SearchMode+"-smoke.json"),new {Passed=true,job.Id,job.Fps,job.Simulator,NativeVerified=true,DraftStaged=true,
-                    OriginalInputsRetained=true,Frames=result.Inputs.Length,result.Evaluated,result.CheckpointsReached,result.CheckpointCount,result.LookaheadSimulatedFrames,result.Seconds,
+                    OriginalInputsRetained=true,Frames=result.Inputs.Length,result.Evaluated,result.Refinements,result.CheckpointsReached,result.CheckpointCount,result.LookaheadSimulatedFrames,result.Seconds,RequestedSeconds=job.Options.Seconds,
                     job.Options.UseFrameTarget,job.Options.FrameAllowance,job.Options.SecondsPerCheckpoint,job.Options.CheckpointLookaheadFrames,GoalX=searchGoalX,GoalY=searchGoalY});
                 Log("PASS engine " + SearchMode + " candidate verified in game; acceptance staged only a draft.");
                 Call("DiscardTimelineEdits");

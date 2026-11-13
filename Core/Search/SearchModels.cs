@@ -69,6 +69,7 @@ namespace Igtap.Tas.Core.Search
         public int Version = 1, Fps;
         public string Id = Guid.NewGuid().ToString("N"), MovieHash = "", PrefixHash = "", GameHash = "", Scene = "";
         public string Simulator = Backend;
+        public string CustomMapId="",CustomMapName="",CustomMapHash="";
         public EngineSearchSpec Engine;
         public SearchOptions Options = new SearchOptions();
         public SearchState Start = new SearchState();
@@ -83,6 +84,11 @@ namespace Igtap.Tas.Core.Search
         public SearchJob CopyForSearch(){var copy=(SearchJob)MemberwiseClone();copy.Options=Options.Copy();copy.Start=Start.Copy();return copy;}
         public void Validate()
         {
+            if(!string.IsNullOrEmpty(CustomMapId))
+            {
+                CustomMapCatalog.ValidateId(CustomMapId);
+                if(CustomMapHash==null||CustomMapHash.Length!=64||Array.Exists(CustomMapHash.ToCharArray(),c=>!Uri.IsHexDigit(c)))throw new InvalidDataException("Missing custom-map capture identity.");
+            }
             if (Version != 1 || (Simulator != Backend && Simulator != EngineSearchSpec.Backend) || string.IsNullOrEmpty(Id) || Options == null || Start?.Player == null || Parameters == null || Geometry == null || Geometry.Length > 200000)
                 throw new InvalidDataException("Unsupported/incomplete search job.");
             if (Simulator == EngineSearchSpec.Backend) (Engine ?? throw new InvalidDataException("Missing game-code capture.")).Validate();

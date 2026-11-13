@@ -112,6 +112,63 @@ internal static class MotionTests
         Check(Math.Abs(timers.Remaining(owner, "callback") - .1) < 1e-6 && !fired && timers.Time == 0, "reading pending timer is side-effect-free");
         timers.Advance(.02);
         Check(Math.Abs(timers.Remaining(owner, "callback") - .08) < 1e-6 && double.IsPositiveInfinity(timers.Remaining(new object(), "callback")), "timer read respects elapsed time and owner");
+        ActionChecks();
         Console.WriteLine("PASS: " + _checks + " player motion/prediction checks (pure model, no Unity simulation).");
+    }
+    private static void ActionChecks()
+    {
+        var s=State();var p=Parameters();var context=new PlayerActionContext {WallJumpUnlocked=true,WallJumps=2};
+        PlayerActionAvailability Read()=>PlayerActionAvailability.Evaluate(s,p,context);
+        s.Grounded=true;s.AirJumps=1;s.AirDashes=1;s.DashCooldown=-.01f;
+        Check(Read().Jump==PlayerJumpKind.Ground && !Read().UsesAirJump && Read().CanDash,"Ground readiness does not claim to consume the available air jump.");
+        s.Grounded=false;
+        Check(Read().UsesAirJump && Read().JumpText=="Yes (air)","An available midair jump is explicitly labeled air.");
+        s.ControlVelocity.Y=200;s.Velocity.Y=-20;
+        Check(!Read().CanJump && Read().JumpText=="No (rising)","The strict 200 air-jump boundary uses internal control velocity, not body velocity.");
+        s.ControlVelocity.Y=199.999f;Check(Read().UsesAirJump,"Normal-jump ascent below the threshold permits an air jump.");
+        s.NormalJump=false;s.ControlVelocity.Y=699.999f;Check(Read().UsesAirJump,"Other upward movement uses the native 700 air-jump threshold.");
+        s.ControlVelocity.Y=700;Check(!Read().CanJump,"The alternative 700 threshold is also strict.");
+        s.ControlVelocity.Y=-50;s.AirJumps=0;Check(!Read().CanJump,"No air-jump charge blocks a midair jump.");
+        s.AirJumps=1;p.DoubleJumpUnlocked=false;Check(!Read().CanJump,"A stored charge cannot bypass the air-jump unlock.");p.DoubleJumpUnlocked=true;
+        s.OnWall=true;
+        Check(Read().Jump==PlayerJumpKind.Wall && !Read().UsesAirJump,"A wall jump has priority over an air jump.");
+        context.WallJumps=0;Check(!Read().CanJump,"An exhausted wall-jump branch cannot fall through to consume an air jump.");
+        s.OnWall=false;s.WallCoyoteFrames=1;context.WallJumps=1;
+        Check(Read().Jump==PlayerJumpKind.Wall,"Wall-coyote readiness uses the wall jump.");
+        context.WallJumpUnlocked=false;Check(!Read().CanJump,"A wall-coyote attempt still requires the wall-jump unlock.");
+        s.WallCoyoteFrames=0;Check(Read().UsesAirJump,"An air jump becomes eligible after the wall window clears.");
+        s.Grounded=true;s.AirJumps=0;p.DoubleJumpUnlocked=false;
+        Check(Read().CanJump,"Ground jumping is independent of extra-air-jump unlocks and charges.");
+        s.DashCooldown=0;Check(!Read().CanDash,"Dash cooldown must be strictly negative.");
+        s.DashCooldown=-.001f;s.WallJumpLock=p.WallJumpLockFrames-5;
+        Check(!Read().CanDash,"The wall-jump dash lock boundary is strict.");
+        s.WallJumpLock-=.001f;Check(Read().CanDash,"Dash readiness returns after the wall-jump lock.");
+        s.AirDashes=0;Check(!Read().CanDash,"No dash charge blocks dash.");
+        s.DashBuffered=true;Check(!Read().CanJump,"An eligible queued dash blocks jump handling even with no dash charge.");
+        s.DashBuffered=false;s.AirDashes=1;p.DashUnlocked=false;Check(!Read().CanDash,"Dash requires its unlock even when a charge is stored.");p.DashUnlocked=true;
+        context.MenuOpen=true;Check(!Read().CanJump && !Read().CanDash,"An open game menu blocks both actions.");context.MenuOpen=false;
+        context.GamePaused=true;Check(!Read().CanJump && !Read().CanDash,"Native hitstop blocks new button presses.");context.GamePaused=false;
+        s.Cutscene=1;s.Dashing=true;s.DashBounceFrames=0;
+        Check(Read().Jump==PlayerJumpKind.Dash && !Read().CanDash,"Grounded dash-jump readiness is distinct from another dash.");
+        context.CanHyper=true;s.FramesSinceDash=3;Check(!Read().CanJump,"The early hyper window cannot activate a jump yet.");
+        s.FramesSinceDash=4;Check(Read().Jump==PlayerJumpKind.Hyper && !Read().UsesAirJump,"A ready hyper jump does not consume the air jump.");
+        s.DashBounceFrames=1;Check(!Read().CanJump,"Dash bounce frames block the dash super-jump branch.");
+        s.Cutscene=4;Check(!Read().CanJump && !Read().CanDash,"Spring control lock does not advertise an immediate jump or dash.");
+        s.Cutscene=0;s.Dashing=false;s.Dead=true;Check(!Read().CanJump && !Read().CanDash,"Dead players cannot act.");s.Dead=false;
+        s.PhysicsSimulated=false;Check(!Read().CanJump && !Read().CanDash,"Disabled player physics reports no readiness.");s.PhysicsSimulated=true;
+        s.DashCooldown=float.NaN;Check(!Read().CanJump && !Read().CanDash && Read().JumpText=="--","Non-finite state is unavailable, not a positive action claim.");
+        var predictor=new MovementPredictor();s=State();p=Parameters();context=default;
+        s.Grounded=true;s.AirDashes=1;s.DashCooldown=.01f;s.WallJumpLock=-100;
+        var next=predictor.Predict(s,p,default,default,.02f,.02f,0);
+        Check(!Read().CanDash && PlayerActionAvailability.Evaluate(next.Next,p,context).CanDash,"The next PU can expire a dash cooldown while current readiness remains blocked.");
+        next=predictor.Predict(s,p,default,default,1f/280,.02f,0);
+        Check(next.PhysicsTicks==0 && !PlayerActionAvailability.Evaluate(next.Next,p,context).CanDash,"A frame without a PU must not expire the dash cooldown.");
+        s=State();s.AirJumps=1;s.ControlVelocity.Y=s.Velocity.Y=210;p.Gravity=27;
+        next=predictor.Predict(s,p,default,default,.02f,.02f,0);
+        Check(!Read().CanJump && PlayerActionAvailability.Evaluate(next.Next,p,context).UsesAirJump,"Predicted vertical velocity can make an air jump available on the next frame.");
+        s.ControlVelocity.Y=s.Velocity.Y=100;s.JumpBuffered=true;
+        next=predictor.Predict(s,p,default,default,.02f,.02f,0);
+        Check(Read().UsesAirJump && next.Next.AirJumps==0 && !PlayerActionAvailability.Evaluate(next.Next,p,context).CanJump,"A predicted air jump consumes its charge before next-frame readiness is evaluated.");
+        Check(!predictor.Predict(s,p,new FrameInput {ExactEdges=true,Press=Buttons.Menu},default,.02f,.02f,0).Available,"The contact-assumption fallback cannot invent readiness across a game-menu transition.");
     }
 }

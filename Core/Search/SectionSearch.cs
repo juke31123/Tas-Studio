@@ -113,13 +113,18 @@ namespace Igtap.Tas.Core.Search
                         var parents = _archive.Select(Math.Min(_options.BeamWidth, Math.Max(4, _options.Workers * 8)), _round, limit);
                         if (parents.Count == 0)
                         {
-                            if (_best == null || _refinementStalls >= 192 || !Refine()) break;
+                            // An exhausted frontier or a local minimum is not
+                            // an exhausted time budget. Keep mutating the best
+                            // route, and explore mixed controls from retained
+                            // states when refinement stalls.
+                            bool refined = _best != null && Refine();
+                            if (!Stop() && (!refined || _refinementStalls >= 192))
+                            { Explore(); _refinementStalls = 0; }
                             _round++; Publish(false); continue;
                         }
                         Expand(parents); _round++;
                         if (_best != null && !Stop() && (_round % 2 == 0 || _archive.Pending == 0)) Refine();
                         Publish(false);
-                        if (_best?.Inputs.Length == 1&&_job.Objective?.HasLookahead!=true) break;
                     }
                 }
                 catch (OperationCanceledException) when (Stop()) { }
@@ -152,6 +157,8 @@ namespace Igtap.Tas.Core.Search
                 _result.Seconds = _clock.Elapsed.TotalSeconds; _result.Finished = done;
                 _result.ArchiveCells = _archive?.Cells ?? 0; _result.BlockedExamples = _reasons.ToArray();
                 _result.CheckpointCount=_route.Count;
+                if (!done && _best != null)
+                { _result.Status = "Improving Beam route"; _result.Message = "Reducing route frames and exploring alternatives for the remaining search budget. Native verification required."; }
                 if (_best != null) { _result.BestFrames = _best.Inputs.Length; _result.Inputs = _best.Inputs; _result.Path = _best.Path;_result.BestScore=_best.End.GoalScore;_result.LookaheadDistance=_best.End.GoalDistance; }
                 _progress?.Invoke(_result.Copy()); _lastPublish = _result.Seconds;
             }
@@ -171,7 +178,7 @@ namespace Igtap.Tas.Core.Search
                     {
                         _result.Reached++;
                         if (_best == null || node.GoalScore<_best.End.GoalScore || node.GoalScore==_best.End.GoalScore&&node.Depth < _best.Inputs.Length)
-                        { bool first = _best == null; _best = BuildRoute(node); _plateaus.Clear(); _plateaus.Add(_best); if (first) _mutationSerial = 0; _refinementStalls = 0; }
+                        { _best = BuildRoute(node); _plateaus.Clear(); _plateaus.Add(_best); _mutationSerial = 0; _refinementStalls = 0; }
                         else if (node.GoalScore==_best.End.GoalScore&&node.Depth == _best.Inputs.Length && _plateaus.Count < 4)
                         {
                             var route = BuildRoute(node);
@@ -260,7 +267,7 @@ namespace Igtap.Tas.Core.Search
             }
             private bool Refine()
             {
-                if (_best == null || _refinementStalls >= 192 || Stop()) return false;
+                if (_best == null || Stop()) return false;
                 var candidates = new List<Candidate>();
                 for (int attempt = 0; attempt < 24 && candidates.Count < Math.Max(2, _options.Workers * 2); attempt++)
                 {
@@ -271,7 +278,7 @@ namespace Igtap.Tas.Core.Search
                     candidates.Add(candidate);
                 }
                 if (candidates.Count == 0) { _refinementStalls += 4; return false; }
-                double before = _best.End.GoalScore;
+                var before = _best;
                 var groups = Partition(candidates.Select(c => c.Resume ?? _root).ToList()); var output = new Batch[candidates.Count];
                 _result.StolenTasks += _workers.RunTasks(groups,_options.ExperimentalWorkStealing,(worker,index) => {
                     if (!Stop()) output[index] = Evaluate(worker, candidates[index], false);
@@ -283,7 +290,37 @@ namespace Igtap.Tas.Core.Search
                     _result.WorkerTasks++;
                     Consume(output[i]);
                 }
-                _refinementStalls = _best.End.GoalScore < before ? 0 : _refinementStalls + candidates.Count; return true;
+                _refinementStalls = !ReferenceEquals(_best, before) ? 0 : _refinementStalls + candidates.Count; return true;
+            }
+            private void Explore()
+            {
+                // Random continuations can discover combinations that a
+                // single repeated input cannot. Snapshots remain worker-owned;
+                // Evaluate restores the selected state's immutable history.
+                int limit = _job.Objective?.HasLookahead == true ? _options.FrameLimit : _best?.Inputs.Length ?? _options.FrameLimit;
+                var candidates = new List<Candidate>();
+                for (int attempt = 0; attempt < Math.Max(2, _options.Workers * 2) && !Stop(); attempt++)
+                {
+                    var parent = attempt % 4 == 0 ? _root : _archive.Sample(limit, _random) ?? _root;
+                    if (parent.Depth >= limit) continue;
+                    int end = Math.Min(limit, parent.Depth + Math.Max(32, Math.Min(512, _job.Fps * 2)));
+                    var rows = new FrameInput[end];
+                    // Prefix rows are already represented by parent; Evaluate
+                    // reads only the generated suffix from parent.Depth onward.
+                    for (int frame = parent.Depth; frame < end;)
+                    {
+                        var input = _actions[_random.Next(_actions.Length)];
+                        int hold = Math.Min(end - frame, 1 << _random.Next(0, 7));
+                        for (int i = 0; i < hold; i++) rows[frame++] = input;
+                    }
+                    candidates.Add(new Candidate { Inputs = rows, Resume = parent });
+                }
+                var output = new Batch[candidates.Count];
+                var groups = Partition(candidates.Select(c => c.Resume).ToList());
+                _result.StolenTasks += _workers.RunTasks(groups, _options.ExperimentalWorkStealing, (worker, index) => {
+                    if (!Stop()) output[index] = Evaluate(worker, candidates[index], false);
+                });
+                foreach (var batch in output) { if (batch != null) _result.WorkerTasks++; Consume(batch); }
             }
             private void PriceGoal(ISearchSimulation simulation,Node node,Batch batch)
             {

@@ -56,6 +56,7 @@ namespace Igtap.Tas.UI
                 800, 820, _owner, IntPtr.Zero, N.GetModuleHandle(null), IntPtr.Zero);
             if (_handle == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
             NativeTheme.DarkTitle(_handle);
+            _theme.WindowIcon(_handle);
             _scale = Math.Max(1, N.GetDpiForWindow(_handle) / 96f);
             _theme.Scale(_scale);
             Add(1, "BUTTON", "Pause", 0); Add(2, "BUTTON", "Step", 0); Add(3, "BUTTON", "Undo", 0);
@@ -342,6 +343,7 @@ namespace Igtap.Tas.UI
         private static bool SameGrid(Snapshot a, Snapshot b)
         {
             if (a == null || a.Cursor != b.Cursor || a.Frames != b.Frames || a.Page != b.Page || a.Revision != b.Revision || a.Timeline.Length != b.Timeline.Length) return false;
+            if(ReferenceEquals(a.Timeline,b.Timeline))return true;
             for (int i = 0; i < a.Timeline.Length; i++)
             {
                 var x = a.Timeline[i]; var y = b.Timeline[i];

@@ -1,5 +1,8 @@
 # Bruteforce window (0.17.0)
 
+Version 0.18.0 supports sections in configured Navigator maps and captures the
+native VMAN timer. See [custom-map support and numeric limits](CUSTOM-MAPS.md).
+
 ## Numbered checkpoints
 
 Open **Checkpoint map...** in the Bruteforce window while paused. **Refresh map**
@@ -175,8 +178,16 @@ tokens, worlds and runtime. Cache misses replay immutable input histories.
 Progress includes replay frames and estimated retained cache bytes. Winning
 preview arrays are built when a result changes, without progress-triggered replay.
 
-The result is best found, not exhaustive or globally optimal. A finite archive or
-refinement neighbourhood may be exhausted before the time limit. Workers remain
+Beam automatically continues improving a found route for the remaining time;
+there is no optimization toggle. A refinement plateau or exhausted archive does
+not finish the search early. Mixed-control continuations from retained states
+and the start keep exploration active, while the current best remains available.
+Shortening passes restart after each better route, including a sweep of
+single-frame cuts alongside coarse cuts, retiming and splices. Progress shows
+**Improving Beam route** after finding a candidate. Stop retains the best complete
+candidate already found. A start already at the final goal needs no search.
+
+The result is best found, not exhaustive or globally optimal. Workers remain
 configurable from 1 to 32; actual speed and memory depend on the captured world.
 
 Beam tries goal-facing actions earlier while retaining the other directions. Its

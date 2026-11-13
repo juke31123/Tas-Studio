@@ -15,6 +15,7 @@ namespace Igtap.Tas.Core
             public double Due;
             public Action Callback;
             public bool Native;
+            public bool FixedOrigin;
         }
         private readonly List<Pending> _pending = new List<Pending>();
         public double Time { get; private set; }
@@ -27,12 +28,15 @@ namespace Igtap.Tas.Core
         public void Cancel(object owner, string method = null) => _pending.RemoveAll(p => ReferenceEquals(p.Owner, owner) && (method == null || p.Method == method));
         // Observe Unity-owned Invoke timers without executing or expiring them.
         // Their callbacks stay in Unity's original player-loop phase.
-        public void ObserveNative(object owner, string method, double delay, double now)
+        public void ObserveNative(object owner, string method, double delay, double now, bool fixedOrigin = false)
         {
             if (owner == null || string.IsNullOrEmpty(method) || double.IsNaN(delay) || double.IsInfinity(delay) || double.IsNaN(now) || double.IsInfinity(now))
                 throw new ArgumentException("Invalid native timer observation.");
-            _pending.Add(new Pending { Owner = owner, Method = method, Due = now + Math.Max(0, delay), Native = true });
+            _pending.Add(new Pending { Owner = owner, Method = method, Due = now + Math.Max(0, delay), Native = true, FixedOrigin = fixedOrigin });
         }
+        public sealed class NativeDeadline { public object Owner; public string Method; public double Remaining; public bool FixedOrigin; }
+        public NativeDeadline[] NativeDeadlines(double now) => _pending.Where(p => p.Native).Select(p => new NativeDeadline {
+            Owner = p.Owner, Method = p.Method, Remaining = Math.Max(0, p.Due - now), FixedOrigin = p.FixedOrigin }).ToArray();
         public void NativeCalled(object owner, string method)
         {
             var pending = _pending.FirstOrDefault(p => p.Native && ReferenceEquals(p.Owner, owner) && p.Method == method);

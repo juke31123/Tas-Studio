@@ -34,6 +34,10 @@ internal static class SimulationTraceTests
             return trace;
         }
         var a = Trace(); var b = Trace();
+        a.PreparedNextFrames.Add(true);a.Validate();
+        a.PreparedNextFrames.Add(false);
+        bool badPacing=false;try{a.Validate();}catch(System.IO.InvalidDataException){badPacing=true;}
+        Check(badPacing,"Mixed step/run pacing metadata must account for every captured input frame.");a.PreparedNextFrames.Clear();
         Check(SimulationTraceComparer.Compare(a, b).Passed, "Equivalent native and offline traces match.");
         b.CaptureOrbs = true;
         Check(!SimulationTraceComparer.Compare(a, b).Passed, "A trace without orb witnesses cannot certify an orb capture.");

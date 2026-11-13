@@ -59,6 +59,7 @@ internal static class WorkerChecks
                     {
                         var input = native.Inputs[frame];
                         if (branch && frame >= 20 && frame < 40) input.X = -1;
+                        if(native.PreparedNextFrames.Count!=0)simulation.ConfigureStudioEndPacing(native.PreparedNextFrames[frame]);
                         simulation.StepStudioFrame(EngineFixture.Input(input, previous)); previous = input;
                     }
                     trial.Hash = digest.Finish(); trial.Samples = digest.Samples;

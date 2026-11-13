@@ -4,9 +4,23 @@ param(
     [string]$TasPath,
     [string]$ReferenceTasPath,
     [int]$ReferenceEndFrame = -1,
+    [ValidateRange(0,999999)][int]$ReferenceCaptureStartFrame = 0,
     [switch]$SearchSmoke,
     [switch]$SearchCheckpoints,
     [switch]$CheckpointBudgets,
+    [string]$CustomMapId,
+    [ValidateRange(0,2)][int]$VmanMode=0,
+    [ValidateRange(0,20000)][int]$CaptureFrames=0,
+    [switch]$MapSaveIsolation,
+    [switch]$HotInstallMap,
+    [switch]$TrajectorySmoke,
+    [switch]$ActionStats,
+    [switch]$TrajectoryStability,
+    [switch]$TrajectoryLive,
+    [switch]$TrajectoryPuSteps,
+    [switch]$RuntimeBenchmark,
+    [ValidateSet('reset','spike','spike-dash')][string]$PreviewInteraction,
+    [ValidateRange(0,999999)][int]$TrajectoryAnchorFrame=0,
     [switch]$VerifyCompactMovie,
     [ValidateSet('chain','beam','wave')][string[]]$SearchModes = @('chain','beam'),
     [int]$SearchSmokeStartFrame = 100,
@@ -43,9 +57,13 @@ if (![string]::IsNullOrWhiteSpace($ReferenceTasPath)) {
     throw 'Pass -TasPath for a same-FPS fixture or -ReferenceTasPath to capture the actual recording. Explicit -FrameRates is available for developer regression tests.'
 }
 if ($null -eq $referencePath -and $PSBoundParameters.ContainsKey('ReferenceEndFrame')) { throw 'ReferenceEndFrame requires ReferenceTasPath.' }
+if ($ReferenceCaptureStartFrame -gt 0 -and ($null -eq $referencePath -or $ReferenceCaptureStartFrame -ge $ReferenceEndFrame)) { throw 'ReferenceCaptureStartFrame requires a reference and must precede ReferenceEndFrame.' }
+if ($ReferenceCaptureStartFrame -gt 0 -and $TrajectorySmoke -and $TrajectoryAnchorFrame -ne $ReferenceCaptureStartFrame) { throw 'A late reference trajectory must start at ReferenceCaptureStartFrame.' }
 if($SearchSmoke -and ($null -eq $referencePath -or $SearchSmokeStartFrame -lt 0 -or $SearchSmokeEndFrame -le $SearchSmokeStartFrame -or $ReferenceEndFrame -le $SearchSmokeEndFrame)) { throw 'SearchSmoke requires a captured reference containing the entire selected start/end range.' }
 if($SearchCheckpoints -and !$SearchSmoke){throw 'SearchCheckpoints requires SearchSmoke.'}
 if($CheckpointBudgets -and !$SearchCheckpoints){throw 'CheckpointBudgets requires SearchCheckpoints.'}
+if($MapSaveIsolation -and !$CustomMapId){throw 'MapSaveIsolation requires CustomMapId.'}
+if($HotInstallMap -and (!$CustomMapId -or $referencePath)){throw 'HotInstallMap requires a prototype CustomMapId without ReferenceTasPath.'}
 if($VerifyCompactMovie -and !$referencePath){throw 'VerifyCompactMovie requires ReferenceTasPath.'}
 foreach ($fps in $FrameRates) { if ($fps -notin @(30,50,60,100,120,144,165,244,280)) { throw "Unsupported FPS: $fps" } }
 if ($FrameRates.Count -eq 0) { throw 'Select at least one frame rate.' }
@@ -66,9 +84,17 @@ if (!(Test-Path -LiteralPath $installed)) { throw 'An installed Tas Studio mod i
 $run = [IO.Path]::GetFullPath((Join-Path $CaptureDirectory (Get-Date -Format 'yyyyMMdd-HHmmss-fff')))
 if ($run.StartsWith($modsPrefix, [StringComparison]::OrdinalIgnoreCase)) { throw 'Store test captures outside the game Mods directory.' }
 New-Item -ItemType Directory -Path $run -Force | Out-Null
+if($ActionStats){Set-Content -LiteralPath (Join-Path $run 'action-stats.txt') -Value 'Read-only native action readiness and resource-consumption checks.'}
+if($RuntimeBenchmark){Set-Content -LiteralPath (Join-Path $run 'runtime-benchmark.txt') -Value 'Paused capture and canonical digest performance/parity checks.'}
+if($TrajectoryLive -and !$TrajectorySmoke){throw 'TrajectoryLive requires TrajectorySmoke.'}
+if($TrajectoryPuSteps -and (!$TrajectorySmoke -or $TrajectoryLive)){throw 'TrajectoryPuSteps requires TrajectorySmoke without TrajectoryLive.'}
+if($TrajectoryLive){Set-Content -LiteralPath (Join-Path $run 'trajectory-live.txt') -Value 'Continuous trajectory responsiveness test.'}
+if($TrajectoryPuSteps){Set-Content -LiteralPath (Join-Path $run 'trajectory-pu-steps.txt') -Value 'Alternate frame and PU steps.'}
+if($PreviewInteraction){Set-Content -LiteralPath (Join-Path $run 'preview-interaction.txt') -Value $PreviewInteraction}
 if ($referencePath) {
     Copy-Item -LiteralPath $referencePath -Destination (Join-Path $run 'reference.tas.json')
     Set-Content -LiteralPath (Join-Path $run 'reference-end.txt') -Value $ReferenceEndFrame
+    Set-Content -LiteralPath (Join-Path $run 'reference-start.txt') -Value $ReferenceCaptureStartFrame
     Write-Host "Reference recording: $($recording.Name), frames [0,$ReferenceEndFrame). Original file remains read-only."
 }
 $buildLog = Join-Path $run 'build.log'
@@ -83,6 +109,24 @@ $movies = Join-Path $mods 'Tas.Studio\data\movies'
 $existingMovies = @{}
 if (Test-Path -LiteralPath $movies) { Get-ChildItem -LiteralPath $movies -File | ForEach-Object { $existingMovies[$_.FullName] = $true } }
 $process = $null
+$saveRoot=[IO.Path]::GetFullPath((Join-Path ([Environment]::GetFolderPath('UserProfile')) 'AppData\LocalLow\Pepper tango games\IGTAPfullGame'))
+$savePrefix=$saveRoot.TrimEnd('\')+'\'
+$saveBackup=Join-Path $run 'saved-progress-before'
+function SavedFiles {
+    if(Test-Path -LiteralPath $saveRoot){
+        foreach($folder in Get-ChildItem -LiteralPath $saveRoot -Directory -Filter 'Savedata*'){
+            Get-ChildItem -LiteralPath $folder.FullName -File -Recurse
+        }
+    }
+}
+$saveBefore=@{}
+foreach($file in SavedFiles){
+    $relative=$file.FullName.Substring($savePrefix.Length)
+    $destination=Join-Path $saveBackup $relative
+    New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force|Out-Null
+    Copy-Item -LiteralPath $file.FullName -Destination $destination
+    $saveBefore[$relative]=(Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
+}
 try {
     Set-Content -LiteralPath (Join-Path $run 'rates.txt') -Value ($FrameRates -join ',')
     if($SearchSmoke) {
@@ -95,7 +139,13 @@ try {
         if($CheckpointBudgets){Set-Content -LiteralPath (Join-Path $run 'search-checkpoint-budgets.txt') -Value 'true'}
     }
     if($VerifyCompactMovie){Set-Content -LiteralPath (Join-Path $run 'compact-replay.txt') -Value 'true'}
-    $timeoutSeconds = if ($SearchSmoke -or $VerifyCompactMovie) { 480 } else { 240 }
+    if($CustomMapId -or $VmanMode -ne 0){@{CustomMapId=$CustomMapId;VmanMode=$VmanMode}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $run 'configured-start.json')}
+    if($CaptureFrames -gt 0){Set-Content -LiteralPath (Join-Path $run 'capture-frames.txt') -Value $CaptureFrames}
+    if($MapSaveIsolation){Set-Content -LiteralPath (Join-Path $run 'map-save-owner-test.txt') -Value $CustomMapId}
+    if($HotInstallMap){@{Prototype=$CustomMapId;Id=('tas-studio-probe-'+[guid]::NewGuid().ToString('N'))}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $run 'hot-install-map.json')}
+    if($TrajectorySmoke){Set-Content -LiteralPath (Join-Path $run 'trajectory-smoke.txt') -Value $TrajectoryAnchorFrame}
+    if($TrajectoryStability){Set-Content -LiteralPath (Join-Path $run 'trajectory-stability.txt') -Value 'true'}
+    $timeoutSeconds = if ($SearchSmoke -or $VerifyCompactMovie -or $ReferenceEndFrame -gt 20000) { 480 } else { 240 }
     Set-Content -LiteralPath (Join-Path $run 'timeout-seconds.txt') -Value $timeoutSeconds
     if($PhysicsDiagnosticsEndFrame -gt 0) { Set-Content -LiteralPath (Join-Path $run 'physics-end.txt') -Value $PhysicsDiagnosticsEndFrame }
     $env:TAS_STUDIO_SIM_CAPTURE = $run
@@ -115,6 +165,36 @@ finally {
     if (Get-Process IGTAPfullGame -ErrorAction SilentlyContinue) { throw 'Another game is running; refusing to replace its DLL.' }
     Copy-Item -LiteralPath (Join-Path $run 'TasStudio.dll') -Destination $installed -Force
     if ((Get-FileHash -LiteralPath $installed).Hash -ne $originalHash) { throw 'Installed DLL restoration failed.' }
+    $temporaryMapFile=Join-Path $run 'hot-install-directory.txt'
+    if(Test-Path -LiteralPath $temporaryMapFile){
+        $ownedMap=[IO.Path]::GetFullPath([IO.File]::ReadAllText($temporaryMapFile).Trim())
+        $mapsPrefix=[IO.Path]::GetFullPath((Join-Path $mods 'recharge.maps\maps')).TrimEnd('\')+'\'
+        $mapId=Split-Path -Leaf $ownedMap
+        if(!$ownedMap.StartsWith($mapsPrefix,[StringComparison]::OrdinalIgnoreCase) -or $mapId -notmatch '^tas-studio-probe-[a-f0-9]{32}$'){throw 'Invalid temporary map cleanup path.'}
+        if(Test-Path -LiteralPath $ownedMap){
+            if([IO.File]::ReadAllText((Join-Path $ownedMap 'tas-studio-test-owner.txt')) -ne $mapId){throw 'Temporary map ownership marker changed.'}
+            Remove-Item -LiteralPath $ownedMap -Recurse
+        }
+    }
+    # Check after process exit too: OnApplicationQuit can save after the probe's
+    # last in-game hash. Restore only this controlled run's Savedata* changes.
+    $restored=0;$removed=0
+    foreach($file in SavedFiles){
+        $full=[IO.Path]::GetFullPath($file.FullName)
+        if(!$full.StartsWith($savePrefix,[StringComparison]::OrdinalIgnoreCase)){throw 'Save inspection escaped its root.'}
+        $relative=$full.Substring($savePrefix.Length)
+        if(!$saveBefore.ContainsKey($relative)){Remove-Item -LiteralPath $full;$removed++}
+    }
+    foreach($relative in $saveBefore.Keys){
+        $destination=[IO.Path]::GetFullPath((Join-Path $saveRoot $relative))
+        if(!$destination.StartsWith($savePrefix,[StringComparison]::OrdinalIgnoreCase)){throw 'Save restoration escaped its root.'}
+        if(!(Test-Path -LiteralPath $destination) -or (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash -ne $saveBefore[$relative]){
+            New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force|Out-Null
+            Copy-Item -LiteralPath (Join-Path $saveBackup $relative) -Destination $destination -Force;$restored++
+        }
+        if((Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash -ne $saveBefore[$relative]){throw 'Saved progress restoration failed.'}
+    }
+    @{Preserved=$true;OriginalFiles=$saveBefore.Count;RestoredFiles=$restored;RemovedTestFiles=$removed}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $run 'saved-progress-isolation.json')
     if (Test-Path -LiteralPath $probe) { Move-Item -LiteralPath $probe -Destination (Join-Path $run 'probe') }
     if ($referencePath -and (Get-FileHash -LiteralPath $referencePath -Algorithm SHA256).Hash -ne $referenceHash) { throw 'The original reference TAS file changed during validation.' }
     $smokeJob=Join-Path $run 'search-smoke-jobs.txt'

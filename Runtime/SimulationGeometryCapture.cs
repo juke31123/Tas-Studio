@@ -21,7 +21,9 @@ namespace Igtap.Tas.Runtime
         private int _recovered, _validated, _matched;
         public SimulationGeometryCapture()
         {
-            _scene = SceneManager.CreateScene("Tas Studio geometry inspector", new CreateSceneParameters(LocalPhysicsMode.Physics2D));
+            // Scene unloading completes asynchronously; a preview and a debug
+            // export may inspect geometry at the same frozen boundary.
+            _scene = SceneManager.CreateScene("Tas Studio geometry inspector " + Guid.NewGuid().ToString("N"), new CreateSceneParameters(LocalPhysicsMode.Physics2D));
         }
         public JObject Report => new JObject { ["recovered"]=_recovered, ["validated"]=_validated, ["matched"]=_matched, ["failures"]=_failures };
         public static JObject Read(Collider2D collider)

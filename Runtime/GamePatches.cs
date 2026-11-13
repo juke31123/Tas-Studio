@@ -59,6 +59,7 @@ namespace Igtap.Tas.Runtime
                         finalizer: menuUpdate ? new HarmonyMethod(typeof(GamePatches), nameof(MenuUpdateFinished)) : null);
                     PatchedMethods++;
                 }
+                CustomMaps.Install(_harmony);
             }
             catch { Dispose(); throw; }
         }
@@ -224,7 +225,7 @@ namespace Igtap.Tas.Runtime
         {
             if (!OwnsTimers(target)) { target.Invoke(method, delay); return; }
             target.Invoke(method, delay);
-            Session.MovementTimers.ObserveNative(target, method, delay, Session.ScaledNow);
+            Session.MovementTimers.ObserveNative(target, method, delay, Session.ScaledNow, Time.inFixedTimeStep);
         }
         private static void MovementCalled(Movement __instance, MethodBase __originalMethod)
         {

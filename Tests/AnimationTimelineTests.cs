@@ -28,8 +28,17 @@ internal static class AnimationTimelineTests
         Check(events.Count == 4 && events[2] == "left" && events[3] == "right", "Loops dispatch both events once per cycle.");
         timeline.Restore(snapshot); events.Clear(); timeline.Step(1, 1, .5f, Emit);
         Check(events.Count == 1 && events[0] == "right", "Restored branch fires the same future event.");
-        timeline.Restore(snapshot); events.Clear(); timeline.Step(0, 1, 1, Emit); timeline.Step(0, 1, 1, Emit);
-        Check(events.Count == 0, "A different candidate that stops running does not inherit the reference's footstep times.");
+        timeline.Restore(snapshot); events.Clear(); timeline.Step(0, 1, .01f, Emit); timeline.Step(0, 1, 1, Emit);
+        Check(events.Count == 0, "Stopping before the next event does not inherit the reference's later footsteps.");
+        timeline.Restore(new AnimationTimelineState {Parameter=1,Time=.24f}); events.Clear();
+        timeline.Step(2,1,.02f,Emit);
+        Check(events.Count==1 && events[0]=="left" && timeline.State.Parameter==2 && timeline.State.Time==0,
+            "An outgoing footstep fires on the jump transition frame while the destination starts at zero (Test34 RNG regression).");
+        timeline.Restore(new AnimationTimelineState {Parameter=1,Time=.24f}); events.Clear();
+        timeline.Step(2,1,.02f,Emit);timeline.Step(2,1,.02f,Emit);
+        Check(events.Count==1,"Restoring a transition branch repeats its outgoing event exactly once.");
+        timeline.Restore(new AnimationTimelineState {Parameter=1,Time=.24f});events.Clear();timeline.Step(2,0,.02f,Emit);
+        Check(events.Count==0 && timeline.State.Time==0,"A frozen outgoing animation does not emit an event on transition.");
         timeline.Restore(snapshot); events.Clear(); timeline.Step(1, 0, 5, Emit); timeline.Step(1, 1, 0, Emit);
         Check(timeline.State.Time == snapshot.Time && events.Count == 0, "Frozen scaled animation time emits no events.");
         timeline.Restore(snapshot); timeline.Step(1, 2, .25f, Emit);
@@ -47,6 +56,14 @@ internal static class AnimationTimelineTests
         Reject(() => new AnimationTimeline(bad, 0, 0), "Negative event time must fail.");
         Reject(() => timeline.Restore(new AnimationTimelineState {Parameter=999}), "Unknown snapshot state must fail.");
         Reject(() => timeline.Step(1, float.NaN, 1, Emit), "Nonfinite animation speed must fail.");
+        var nativeBoundary=new AnimationTimeline(new[] {
+            new SimulationAnimationState {Parameter=1,Hash=101,Length=.545454562f,Loop=true,
+                Events=new[]{new SimulationAnimationEvent{Time=.09090909f,Function="RelayFootstep"}}},
+            new SimulationAnimationState {Parameter=5,Hash=105,Length=.0166666675f}
+        },1,.16499992f);
+        events.Clear();nativeBoundary.Step(5,1,1f/280,Emit);
+        Check(events.Count==1 && events[0]=="RelayFootstep" && nativeBoundary.State.Time==0,
+            "Test34 frame 32117 preserves the outgoing native run event at its actual clip timestamp and 280 FPS.");
         Console.WriteLine("Animation timeline checks passed: " + checks);
     }
 }

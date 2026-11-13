@@ -9,7 +9,7 @@ namespace IGTAP.EngineSim
 {
     public sealed partial class Simulation
     {
-        private bool _studioSearchGuards;
+        internal bool _studioSearchGuards;
         private bool _studioSpringWitnesses;
         private bool _studioUpgradeWitnesses;
         private static readonly FieldInfo StudioMoverType=typeof(PlatformMover).GetField("PlatformType",BindingFlags.Instance|BindingFlags.NonPublic|BindingFlags.Public)
@@ -26,6 +26,9 @@ namespace IGTAP.EngineSim
                 if(!source && !shapes.GetProperty("list").EnumerateArray().Any() && !component.TryGetProperty("geometrySource",out _)) missing.Add(component.GetProperty("id").GetInt32());
             }
             Physics.StudioMissingGeometry=missing;
+            Physics.StudioExternalMechanics=new Dictionary<int,string>();
+            if(definition.TryGetProperty("externalMechanics",out var external))
+                foreach(var row in external.EnumerateArray())Physics.StudioExternalMechanics[row.GetProperty("collider").GetInt32()]=string.Join(", ",row.GetProperty("types").EnumerateArray().Select(t=>t.GetString()));
             foreach(var data in World.Colliders)
                 if(data.Collider.enabled && data.Collider.gameObject.activeInHierarchy && missing.Contains(data.Collider.GetInstanceID()))
                     throw new NotSupportedException("Active geometry was not exported: " + data.Collider.name);
@@ -64,8 +67,19 @@ namespace IGTAP.EngineSim
     public sealed partial class PhysicsWorld
     {
         internal HashSet<int> StudioMissingGeometry;
+        internal Dictionary<int,string> StudioExternalMechanics;
+        private void StudioCheckExternalContacts()
+        {
+            if(StudioExternalMechanics==null||!_sim._studioSearchGuards)return;
+            foreach(var pair in _pairsNow.Concat(_pairsBefore))
+            {
+                var actor=pair.A.Body==_player?pair.B:pair.B.Body==_player?pair.A:null;
+                if(actor!=null&&StudioExternalMechanics.TryGetValue(actor.Id,out var types))throw new NotSupportedException("Custom-map interaction needs a simulator adapter: "+types+" ("+actor.Collider.name+").");
+            }
+        }
         internal void StudioCheckExistingMechanics()
         {
+            StudioCheckExternalContacts();
             // Guards are enabled after the verified prefix. A platform already
             // carrying the player need not emit another enter callback.
             foreach(var pair in _touching.Concat(_pairsBefore).Distinct()) {

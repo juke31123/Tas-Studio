@@ -1,4 +1,93 @@
-# Tas Studio 0.17.1
+# Tas Studio 0.19.8
+
+New in 0.19.8: the Controls, Frame Editor, Bruteforce and Checkpoint map windows
+use the supplied Tas Studio icon. The icon is embedded in the mod DLL and scaled
+to the window's DPI for the title bar and Alt+Tab/taskbar. Native icon handles
+are released when the desktop windows are disposed.
+
+New in 0.19.7: the external simulator preserves the outgoing animation's final
+events during an instantaneous transition. This fixes Test34's missing footstep
+and its resulting `random/s0` trajectory mismatch when a jump interrupts running.
+Random-state checks remain exact. An external-simulator-only update can keep an
+existing 0.19.6 recording compatible; replacing the main DLL/manifest changes its
+mod fingerprint. See [trajectory validation](docs/TRAJECTORY.md).
+
+New in 0.19.6: faster periodic world verification with the same fields and digest
+format. Scene-key and encoding caches re-read every current value and detect
+hierarchy/component changes. Full savestates retain all original values.
+Unchanged editor pages reuse immutable rows, and read-only labels avoid repeated
+Windows text calls. Simulator exports cache reflection metadata and discover
+components once; trajectory snapshot serialization/hashing runs in the background
+after native capture. Geometry inspection still requires a paused game and can
+take several seconds. See [measurements and validation](docs/PERFORMANCE-0.19.6.md).
+
+New in 0.19.5: trajectory forecasts use a dedicated fast path in the external
+simulator, with compact binary messages, bounded snapshot checkpoints and
+background input-history assembly. Live input changes request forecasts at up
+to 30 Hz; frame/PU steps request immediately. Recorded Reset actions are supported.
+Native trigger-pair capture preserves spike Enter/Stay grace and dash kills;
+the red endpoint includes the actual fatal frame. The long line refreshes at
+up to 30 Hz while moving, and the next-frame marker updates every game frame.
+Pause once for the initial world capture, which can still take several seconds
+on a large scene. No extra application needs launching manually. See
+[trajectory controls and limits](docs/TRAJECTORY.md).
+
+New in 0.19.4: **Can jump** and **Can dash** now have **Next Frame** values.
+They use the predicted future motion, charges, cooldown and control state.
+The game-code forecast carries readiness from its own private future world;
+the lightweight fallback uses its existing unchanged-contact assumptions.
+Unsupported predictions show `--`.
+
+New in 0.19.3: the player stats table adds **Can jump** and **Can dash**.
+Jump readiness identifies ground, wall, air, dash or hyper jumps. The live checks
+include unlocks, charges, ascent restrictions, control locks and dash cooldown.
+Version 0.19.3 introduced the current-state rows; 0.19.4 adds their forecasts.
+
+This updates the main mod DLL. Existing recordings retain their strict mod-file
+fingerprint checks; a full update changes that fingerprint, unlike the previous
+solver-only Cold fix.
+
+New in 0.19.2: custom-map searches reconstruct transient composite-contact
+differences only when positions keep matching and the full search-start witness
+passes the usual checks. Cold's first-contact ordering is corrected in the
+external host; recordings and native candidate verification are unchanged.
+
+New in 0.19.1: trajectory controls retain pending clicks until the game
+acknowledges them. Length edits stay intact until applied. A failed forecast
+keeps the feature enabled and reports the problem; use **Refresh snapshot
+(paused)** to retry. This avoids repeated automatic world exports. The preview
+reuses vertex storage, skips unchanged paused uploads and caches player/origin
+lookups. Profiles now include Trajectory, TrajectoryCapture and TrajectoryDraw.
+
+New in 0.19.0: experimental in-game trajectory preview. During a TAS, pause and
+open the desktop controls' **Preview** tab. Enable **Show in-game trajectory**;
+set 1-2000 preview frames and click **Apply preview settings**. The default is
+280 frames. The cyan line holds the current controls; the white cross is the
+next frame. Next-frame stats use this same game-code simulation while enabled.
+The preview is off by default and needs the complete portable package. First
+use prepares the simulator from your installed game, as with Bruteforce.
+See [accuracy, colors and snapshot limitations](docs/TRAJECTORY.md).
+
+New in 0.18.2: Beam automatically improves its best route for the remaining
+search time. It no longer ends early after a refinement plateau or exhausted
+archive. Each improvement restarts shortening passes, including single-frame
+cuts. Stop preserves a complete candidate already found; native verification
+is still required before acceptance.
+
+New in 0.18.1: Create New Tas detects installed/removed maps while its screen is
+open, preserving your selected map when the list changes. Studio, Bruteforce and
+the checkpoint-map window show the map Navigator actually loaded. Geometry is
+refreshed when a loaded scene changes, and captures reject a different map or
+map revision. Search jobs carry the map identity alongside the geometry.
+
+New in 0.18.0: installed Navigator maps appear as `Custom: <name>` in Create New
+Tas. Choose the main map spawn and the abilities you want. Recording and replay
+rebuild the selected map before frame zero; changed or missing map files are
+reported before playback. Bruteforce captures that map's live geometry. Keep
+Navigator enabled and install the same map version on every playback machine.
+Create New Tas also offers Normal, Timed VMAN (configurable seconds) and VMAN
+practice. Both the map choice and VMAN mode are saved in the TAS.
+See `docs/CUSTOM-MAPS.md` for setup, validation and simulator limits.
 
 New in 0.17.1: the in-game Mods entry and Tas Studio menu title show the
 installed DLL version. Loader and desktop version labels use the same value.

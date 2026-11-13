@@ -22,7 +22,7 @@ namespace Igtap.Tas.UI
         private readonly Dictionary<int, IntPtr> _controls = new Dictionary<int, IntPtr>();
         private readonly Dictionary<int, string> _text = new Dictionary<int, string>();
         private IntPtr _handle;
-        private string _className, _localError = "";
+        private string _className, _localError = "",_windowTitle="";
         private float _scale = 1;
         private bool _initialised;
         private int _scroll;
@@ -35,6 +35,7 @@ namespace Igtap.Tas.UI
         public void Open()
         {
             if (_handle != IntPtr.Zero) { if (_visible) { N.ShowWindow(_handle, 9); N.SetForegroundWindow(_handle); } return; }
+            _windowTitle="";
             if (_className == null)
             {
                 _className = "TasStudio.Bruteforce." + Guid.NewGuid().ToString("N");
@@ -47,7 +48,8 @@ namespace Igtap.Tas.UI
                 _visible ? unchecked((int)0x80000000) : -30000, _visible ? unchecked((int)0x80000000) : -30000,
                 860, 880, _owner, IntPtr.Zero, N.GetModuleHandle(null), IntPtr.Zero);
             if (_handle == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
-            NativeTheme.DarkTitle(_handle); _scale = Math.Max(1, N.GetDpiForWindow(_handle) / 96f); _theme.Scale(_scale);
+            NativeTheme.DarkTitle(_handle); _theme.WindowIcon(_handle);
+            _scale = Math.Max(1, N.GetDpiForWindow(_handle) / 96f); _theme.Scale(_scale);
             Add(1, "STATIC", "BRUTEFORCE / EXTERNAL SEARCH");
             Add(2, "STATIC", "Start frame"); Add(3, "EDIT", "0"); Add(4, "BUTTON", "Use TAS cursor");
             Add(5, "STATIC", "Maximum frames"); Add(6, "EDIT", "180");
@@ -196,6 +198,8 @@ namespace Igtap.Tas.UI
             _map?.Refresh();
             if (_handle == IntPtr.Zero || _channel.Latest == null) return;
             var snapshot = _channel.Latest; var search = snapshot.Search; var options = search.Options; var result = search.Result;
+            string title="Tas Studio - Bruteforce - "+snapshot.LoadedMap;
+            if(title!=_windowTitle){N.SetWindowText(_handle,title);_windowTitle=title;}
             if (!_initialised)
             {
                 foreach (var value in new[] { (3, result.JobId.Length > 0 ? options.StartFrame : snapshot.Cursor), (6, options.Horizon), (8, options.Seconds), (10, options.Workers), (14, options.ChunkFrames) })

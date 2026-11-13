@@ -30,6 +30,7 @@ namespace IGTAP.EngineSim
         internal StudioInput Input;
         internal double Phase, Time;
         internal float Scale;
+        internal bool EndPacing;
         internal int Frame, Pus;
         internal NativeFrameClock NativeClock;
         internal AnimationTimelineState Animation;
@@ -38,6 +39,7 @@ namespace IGTAP.EngineSim
         internal bool Interpolate;
         internal int Checkpoint;
         internal MoverFrameState[] Movers;
+        internal double VmanTime,VmanScore;
     }
     public sealed partial class Simulation
     {
@@ -54,12 +56,30 @@ namespace IGTAP.EngineSim
         public double StudioNativeTime => _studioNativeClock.Time;
         public double StudioNativeFixedTime => _studioNativeClock.FixedTime;
         public long StudioCaptureTicks => _studioNativeClock.CaptureTicks;
+        public void ConfigureStudioEndPacing(bool prepared) => _studioContinuous=prepared;
+        public long StudioPreparedCaptureTicks()
+        {
+            // Continuous native End prepares the next capture step; a paused
+            // single-frame End retains the consumed one. Compare the requested
+            // boundary without changing the simulation's clocks or state.
+            var clock=_studioNativeClock;
+            double total=_studioPhase + (1.0/_studioFps)*_studioScale;
+            int pus=(int)Math.Floor(total/.02 + 1e-10);
+            clock.Prepare(pus,Math.Max(0,total-pus*.02),_studioScale,_studioFps);
+            return clock.CaptureTicks;
+        }
         public int StudioFrame => _studioFrame;
         public int StudioPus => _studioPus;
         public void ConfigureStudioObservedScale(float scale) { _studioScale=scale; Time.timeScale=scale; }
         public void ConfigureStudioObservedRender(float x,float y,float z) => Player.transform.StoreWorldPosition(new Vector3(x,y,z));
         public int StudioPendingInvokes => _studioScheduler?.PendingCount ?? 0;
         public int StudioCoroutines => _studioScheduler?.RoutineCount ?? 0;
+        public void ConfigureStudioPreviewTimers(System.Text.Json.JsonElement start)
+        {
+            if (!start.TryGetProperty("previewInvokes", out var pending)) return;
+            foreach (var timer in pending.EnumerateArray())
+                _studioScheduler.ImportInvoke(Player, timer.GetProperty("method").GetString(), timer.GetProperty("seconds").GetDouble(), timer.GetProperty("fixed").GetBoolean());
+        }
         public double StudioPhase => _studioPhase;
         public Action<int, string> StudioSample;
         public Action StudioAfterMovement;
@@ -177,7 +197,15 @@ namespace IGTAP.EngineSim
                 _studioScheduler.InvokeAnchor = _studioNativeClock.FixedTime;
                 StudioFrameControls.Now = (float)_studioNativeClock.FixedTime;
                 Shop.Economy?.FixedStep();
+                double vmanBefore=_vmanTimeLeft;
                 EconomyFixedUpdates();
+                if(VmanScript.isCurrentlyVman)
+                {
+                    if(globalStats.globalUpgradeDict[globalStats.globalUpgradeSet.vmanTime]<0)_vmanTimeLeft=vmanBefore+World.FixedDeltaTime;
+                    VmanScript.vmanTimeLeft=_vmanTimeLeft;
+                    if(globalStats.globalUpgradeDict[globalStats.globalUpgradeSet.vmanTime]>=0&&_vmanTimeLeft<=0&&!_vmanBlockEnding)
+                        throw new NotSupportedException("The timed VMAN run ended; a section cannot cross the scene transition.");
+                }
                 StudioSample?.Invoke(pu + 1, "before-pu");
                 Vector3 render = Player.transform.m_Position;
                 bool pendingTransformWrite = Physics.PlayerTransformDirty;
@@ -251,9 +279,10 @@ namespace IGTAP.EngineSim
         { alpha = Math.Clamp(alpha, 0f, 1f); float left = (1f - alpha) * from; float right = alpha * to; return left + right; }
         public StudioSnapshot CaptureStudioState() => new StudioSnapshot { Owner = this, World = Capture(_studioFrame),
             Scheduled = _studioScheduler.Capture(), Input = _studioInput, Phase = _studioPhase, Time = _studioTime,
-            Scale = _studioScale, Frame = _studioFrame, Pus = _studioPus, NativeClock = _studioNativeClock,
+            Scale = _studioScale, EndPacing = _studioContinuous, Frame = _studioFrame, Pus = _studioPus, NativeClock = _studioNativeClock,
             Animation = _studioAnimation?.State ?? default, AnimationSpeed = Player.animator?.speed ?? 1,
             Interpolate = _studioInterpolate, Movers = CaptureStudioMovers(),Checkpoint=_studioCheckpoint,
+            VmanTime=VmanScript.vmanTimeLeft,VmanScore=VmanScript.vmanScore,
             CoursePaths = _coursePathLists.Select(paths => paths.Select(path => path.Cast<object>().ToArray()).ToArray()).ToArray() };
         public void RestoreStudioState(StudioSnapshot state)
         {
@@ -270,8 +299,10 @@ namespace IGTAP.EngineSim
             _studioPhase = state.Phase; _studioTime = state.Time; _studioScale = state.Scale;
             _studioFrame = state.Frame; _studioPus = state.Pus; ApplyStudioInput(state.Input);
             _studioNativeClock = state.NativeClock;
+            _studioContinuous = state.EndPacing;
             _studioInterpolate = state.Interpolate;
             _studioCheckpoint=state.Checkpoint;
+            VmanScript.vmanTimeLeft=state.VmanTime;VmanScript.vmanScore=state.VmanScore;
             RestoreStudioMovers(state.Movers);
             _studioAnimation?.Restore(state.Animation);
             if (Player.animator != null) Player.animator.speed = state.AnimationSpeed;
@@ -299,6 +330,8 @@ namespace IGTAP.EngineSim
         public bool FixedPhase;
         public int PendingCount => _pending.Count;
         public int RoutineCount => _routines.Count;
+        public void ImportInvoke(MonoBehaviour target, string method, double seconds, bool fixedOrigin) =>
+            _pending.Add(new Pending { Target = target, Method = method, Due = Now + Math.Max(0, seconds), Repeat = -1, FixedOrigin = fixedOrigin });
         public StudioScheduler(Action<MonoBehaviour> touch) { _touch = touch; }
         public void ImportFixed(MonoBehaviour target, IEnumerator body)
         {

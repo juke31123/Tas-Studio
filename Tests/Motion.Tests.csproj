@@ -5,6 +5,11 @@
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../Core/CustomMapCatalog.cs" />
+    <Compile Include="CustomMapTests.cs" />
+    <Compile Include="../Core/PlayerActions.cs" />
+    <Compile Include="TrajectoryTests.cs;../Core/Trajectory.cs;../Core/TrajectoryWire.cs" />
+    <Compile Include="WorldPerformanceTests.cs;../Core/WorldWitnessBuilder.cs" />
     <Compile Include="Program.cs;MotionTests.cs;../Core/PlayerMotion.cs;../Core/MovementPredictor.cs;../Core/Movie.cs;../Core/MovieJson.cs;../Core/SimulationTimers.cs;../Core/Savestate.cs;../Core/MovieStore.cs;../Core/TasStartSetup.cs" />
 
     <Compile Include="FrameCellTests.cs;../Core/FrameCellEdit.cs;../Core/Timeline.cs" />

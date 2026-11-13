@@ -10,16 +10,18 @@ See [section-search release scope](docs/SECTION-SEARCH-RELEASE.md) and
 
 TAS authoring tools for **IGTAP: an Incremental Game That's Also a Platformer**, using the Recharge mod loader.
 
-Author: **Juke**. Current version: **0.17.1**. Mod ID: `Tas.Studio`. Entry assembly: `TasStudio.dll`.
+Author: **Juke**. Current version: **0.19.6**. Mod ID: `Tas.Studio`. Entry assembly: `TasStudio.dll`.
 
 ## Features
 
+- **In-game trajectory preview:** enable **Preview > Show in-game trajectory** in the controls window while paused. A private game-code simulation holds the current inputs, draws a cyan path and white next-frame cross, and supplies the next-frame stats. Length is configurable from 1 to 2,000 TAS frames. Unsupported interactions stop the forecast. See [preview controls and limits](docs/TRAJECTORY.md).
+- **Custom maps and VMAN:** Navigator maps are detected while Create New Tas is open. Record and replay from their main spawn with selected abilities, Normal/Timed VMAN/VMAN practice mode and the chosen FPS. Windows identify the map actually loaded; bruteforce captures its current geometry and verifies its identity. Unsupported custom interactions remain guarded. See [custom-map controls and limits](docs/CUSTOM-MAPS.md).
 - The in-game **Mods** entry and Tas Studio menu title show the installed version, shared with the loader and desktop labels.
 - **Compact run files** save input changes with explicit start frames/durations, checked against the total frame count. Related state values are grouped, movement/world changes are stored and the starting-world witness is compressed. Inputs, per-frame movement hashes, timing and replay checks remain intact. See [file storage](docs/FILE-STORAGE.md).
 - **Checkpoint map** in Bruteforce: place and drag numbered circular goals, middle-drag to pan, edit coordinates/radii and reorder points. Beam, Wave and chain searches retain ordered checkpoint progress in every branch and offer whole-route or per-checkpoint time budgets with optional lookahead. Native playback must visit every point in order and finish at the last before acceptance.
 - Local **CashPerLoop** single purchases are supported by the game-code search, with native currency, price, cooldown and local-upgrade witnesses. Other upgrades, buy-max and Vman purchases remain guarded until validated.
 - Dedicated **Bruteforce** window: choose a start frame, goal point/radius and allowed abilities, then use **Beam search** or **Wave search**. An optional **Exhaustive input chain** mode times a prescribed action sequence. Progress includes archive cells, splices, plateau changes and cached-state replays. Optional frame targets allow a configurable overrun (default 1000 frames). Goal placement happens in the checkpoint map. **Native verification required.** See [coverage and controls](docs/BRUTEFORCE.md).
-- **Beam search** keeps diverse reachable states, explores mixed input holds including single frames, and improves routes with cuts, retiming and splices. Dedicated workers reuse their own native snapshots; progress reports cache and refinement work without re-simulating the preview.
+- **Beam search** keeps diverse reachable states, explores mixed input holds including single frames, and automatically improves found routes with cuts, retiming and splices for the remaining search budget. Shortening passes restart whenever the best route improves; exhausted branches trigger further exploration. Dedicated workers reuse their own native snapshots; progress reports cache and refinement work without re-simulating the preview.
 - Optional **Experimental work stealing (Beam only)** lets idle workers take queued branches while preserving private worlds and snapshots. Affinity remains the default. More threads can increase reconstruction costs; compare on the current section.
 - Desktop stats sample at the display's 10 Hz cadence, timeline pages use direct indexing, world checks reuse per-capture paths, saves stream JSON, and repeated frame steps coalesce automatic profiler writes. Replay witnesses and explicit Save edits remain intact.
 - Multi-level **Undo/Redo**, durable draft recovery, and verified live-checkpoint reuse. Edits still apply only when you click **Save edits**.
@@ -35,7 +37,7 @@ Author: **Juke**. Current version: **0.17.1**. Mod ID: `Tas.Studio`. Entry assem
 - Pause, advance a frame, and select recording/playback speed from 0.1x to 1x.
 - Edit recorded inputs and detect movement desynchronization.
 - Save named replay checkpoints while recording is paused. Loading reconstructs the saved frame by replaying, then resumes paused recording; these are not instant memory snapshots.
-- Inspect live player position, velocity, speed and movement state in the **F10 Player stats** window, with a next-frame estimate for supported movement. Predictions assume unchanged contacts; collisions, triggers and special transitions are not simulated. See [prediction coverage](docs/PLAYER-STATS.md).
+- Inspect live player position, velocity, speed and movement state in the **F10 Player stats** window. **Can jump** identifies ground, wall, air, dash or hyper jumps; **Can dash** checks charges, unlocks, cooldown and control locks. Both include next-frame readiness using the selected inputs and prediction backend. Unsupported forecasts show `--`. See [prediction coverage](docs/PLAYER-STATS.md).
 
 See [installation and controls](INSTALL.md), [checkpoint details](docs/SAVESTATES.md), and [implementation limits](docs/RESEARCH.md).
 
@@ -64,7 +66,7 @@ with bundled .NET runtimes and excludes the generated game assembly. The default
 build without that switch is the smaller development package; its static solver
 still needs .NET 10 or a separately registered host.
 
-The build produces `artifacts/Tas.Studio/` and `artifacts/Tas-Studio-0.17.1.zip`. Follow `INSTALL.md` to install the package. Build outputs and downloaded dependencies are ignored by Git.
+The build produces `artifacts/Tas.Studio/` and `artifacts/Tas-Studio-0.19.6.zip`. Follow `INSTALL.md` to install the package. Build outputs and downloaded dependencies are ignored by Git.
 
 ## Source layout
 
