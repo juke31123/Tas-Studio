@@ -3,6 +3,11 @@
 Version 0.18.0 supports sections in configured Navigator maps and captures the
 native VMAN timer. See [custom-map support and numeric limits](CUSTOM-MAPS.md).
 
+Version 0.19.9 adds ordinary Wall jump purchases in normal/timed/practice modes.
+Passing an inactive or unaffordable box no longer rejects the route. Other
+unsupported purchases still reject the candidate before granting or spending.
+See [upgrade-box coverage](UPGRADE-BOXES.md).
+
 ## Numbered checkpoints
 
 Open **Checkpoint map...** in the Bruteforce window while paused. **Refresh map**

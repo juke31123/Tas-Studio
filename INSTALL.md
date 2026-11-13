@@ -1,4 +1,11 @@
-# Tas Studio 0.19.8
+# Tas Studio 0.19.9
+
+New in 0.19.9: ordinary single-purchase Wall jump boxes are supported by the
+external simulator, including timed/practice VMAN's free-purchase rules.
+Inactive or unaffordable upgrade boxes no longer stop a
+forecast on contact; unsupported affordable purchases still stop it. New
+snapshots include the mutable state of every upgrade box for validation.
+See [upgrade-box coverage and validation](docs/UPGRADE-BOXES.md).
 
 New in 0.19.8: the Controls, Frame Editor, Bruteforce and Checkpoint map windows
 use the supplied Tas Studio icon. The icon is embedded in the mod DLL and scaled

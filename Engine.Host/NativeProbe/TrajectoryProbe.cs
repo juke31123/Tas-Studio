@@ -53,6 +53,8 @@ internal static class TrajectoryProbe
         _start = frame;
         int until = frame < fps / 10 ? fps / 10 : frame < fps / 5 ? fps / 5 : frame < fps * 2 / 5 ? fps * 2 / 5 : frame == fps * 2 / 5 ? frame + 1 : frame + 16;
         _frames = Math.Min(16, Math.Max(1, until - frame));
+        string limit=Path.Combine(root,"capture-frames.txt");
+        if(File.Exists(limit))_frames=Math.Min(_frames,Math.Max(1,int.Parse(File.ReadAllText(limit))-frame));
         _before = State(session); _random = JsonUtility.ToJson(UnityEngine.Random.state);
         _preview.Configure(true, _frames); return true;
     }

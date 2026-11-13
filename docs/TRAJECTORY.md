@@ -1,4 +1,10 @@
-# Trajectory preview (0.19.7)
+# Trajectory preview (0.19.9)
+
+Version 0.19.9 supports ordinary Wall jump purchases and passive contact with
+inactive or unaffordable boxes. Unsupported effects are checked only when an
+affordable purchase would actually occur. The preview keeps its native currency,
+ability, box-state and random-state comparisons. See [upgrade-box coverage and
+validation](UPGRADE-BOXES.md).
 
 Version 0.19.7 preserves the outgoing clip's last event interval when Unity's
 instantaneous animation transition enters its destination at time zero. In

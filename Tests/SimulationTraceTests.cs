@@ -46,6 +46,14 @@ internal static class SimulationTraceTests
         Check(!SimulationTraceComparer.Compare(a,b).Passed,"Mover witnesses are part of the trace identity."); b.CaptureMovers=false;
         b.CaptureSprings=true;
         Check(!SimulationTraceComparer.Compare(a,b).Passed,"Spring witnesses are part of the trace identity."); b.CaptureSprings=false;
+        a.CaptureUpgrades=b.CaptureUpgrades=true;b.CaptureAllUpgradeBoxes=true;
+        Check(!SimulationTraceComparer.Compare(a,b).Passed,"All-box witnesses cannot be certified by a cash-only capture.");
+        a.CaptureAllUpgradeBoxes=true;
+        Check(SimulationTraceComparer.Compare(a,b).Passed,"Matching all-box witness schedules retain exact comparisons.");
+        b.CaptureUpgrades=false;
+        bool invalidBoxes=false;try{b.Validate();}catch(System.IO.InvalidDataException){invalidBoxes=true;}
+        Check(invalidBoxes,"An all-box capture requires upgrade witnesses.");
+        a.CaptureUpgrades=b.CaptureUpgrades=a.CaptureAllUpgradeBoxes=b.CaptureAllUpgradeBoxes=false;
         var body = new Body {position=new Point(1,5),linearVelocity=new Point(-7,8)};
         var moverFields = new System.Collections.Generic.SortedDictionary<string,string>();
         object capturedBody=SimulationFieldCapture.AddMover(moverFields,new Mover(body),42);

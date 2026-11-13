@@ -4,7 +4,7 @@
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems><LangVersion>latest</LangVersion>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="Program.cs;EngineFixture.cs;WorkerChecks.cs;EngineBenchmark.cs;EngineSearchSimulation.cs;EngineSearchRunner.cs;TrajectoryRunner.cs;SearchCacheChecks.cs;CandidateChecks.cs;WaveSearch.cs;PassiveReplay.cs;CollisionChecks.cs;CompatibilityChecks.cs;../Core/**/*.cs" />
+    <Compile Include="Program.cs;EngineFixture.cs;WorkerChecks.cs;EngineBenchmark.cs;EngineSearchSimulation.cs;EngineSearchRunner.cs;TrajectoryRunner.cs;SearchCacheChecks.cs;CandidateChecks.cs;UpgradeChecks.cs;WaveSearch.cs;PassiveReplay.cs;CollisionChecks.cs;CompatibilityChecks.cs;../Core/**/*.cs" />
     <Reference Include="IGTAP.EngineSim.Runtime"><HintPath>$(EngineRoot)/enginesim/Runtime/bin/Release/net10.0/IGTAP.EngineSim.Runtime.dll</HintPath></Reference>
     <Reference Include="IGTAP.UnityShim"><HintPath>$(EngineRoot)/enginesim/Runtime/bin/Release/net10.0/IGTAP.UnityShim.dll</HintPath></Reference>
     <Reference Include="IGTAP.Box2D"><HintPath>$(EngineRoot)/enginesim/Runtime/bin/Release/net10.0/IGTAP.Box2D.dll</HintPath></Reference>

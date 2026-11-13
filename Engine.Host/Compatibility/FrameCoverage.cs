@@ -15,6 +15,8 @@ namespace IGTAP.EngineSim
         private static readonly FieldInfo StudioMoverType=typeof(PlatformMover).GetField("PlatformType",BindingFlags.Instance|BindingFlags.NonPublic|BindingFlags.Public)
             ?? throw new MissingFieldException("PlatformMover.PlatformType");
         private static readonly object StudioZipType=Enum.Parse(StudioMoverType.FieldType,"zipMover");
+        private static readonly FieldInfo StudioUpgradeTree=typeof(upgradeBox).GetField("upgradeTree",BindingFlags.Instance|BindingFlags.NonPublic|BindingFlags.Public)
+            ?? throw new MissingFieldException("upgradeBox.upgradeTree");
         public void ConfigureStudioSearchGuards(JsonElement definition, bool springWitnesses = false,bool upgradeWitnesses=false)
         {
             var missing=new HashSet<int>();
@@ -51,17 +53,31 @@ namespace IGTAP.EngineSim
             if(target is SpringScript && !_studioSpringWitnesses)
                 throw new NotSupportedException("Spring contact requires native spring-state witnesses.");
             if(target is PlatformMover mover && Equals(StudioMoverType.GetValue(mover),StudioZipType)) return;
-            if(target is upgradeBox box && box.upgrade==localUpgrades.localUpgradeSet.cashPerLoop &&
+            // Passive contact only updates the native cooldown/debris. Check
+            // unsupported effects at the actual affordable purchase boundary.
+            if(target is upgradeBox) return;
+            switch(target.GetType().Name)
+            {
+                case "PlatformMover": case "TeleporterScript":
+                    throw new NotSupportedException("Contact requires a native mechanic fixture: " + target.GetType().Name + " (" + target.name + ").");
+            }
+        }
+        internal void StudioCheckUpgradePurchase(upgradeBox box)
+        {
+            if(!_studioSearchGuards) return;
+            if(box.upgrade==localUpgrades.localUpgradeSet.cashPerLoop &&
                 (!box.buyMax||box.neverBuyMax) && !VmanScript.isCurrentlyVman)
             {
                 if(!_studioUpgradeWitnesses)throw new NotSupportedException("CashPerLoop contact requires native purchase-state witnesses. Capture a new search from this build.");
                 return;
             }
-            switch(target.GetType().Name)
+            if(box.upgrade==localUpgrades.localUpgradeSet.Movement && box.movementUpgrade==upgradeBox.movementUpgrades.wallJump &&
+                (!box.buyMax||box.neverBuyMax) && box.Cap==1 && StudioUpgradeTree.GetValue(box)==null)
             {
-                case "PlatformMover": case "upgradeBox": case "TeleporterScript":
-                    throw new NotSupportedException("Contact requires a native mechanic fixture: " + target.GetType().Name + " (" + target.name + ").");
+                if(!_studioUpgradeWitnesses)throw new NotSupportedException("Wall jump purchase requires native purchase-state witnesses. Refresh the snapshot.");
+                return;
             }
+            throw new NotSupportedException("Purchase requires a native mechanic fixture: upgradeBox ("+box.name+").");
         }
     }
     public sealed partial class PhysicsWorld

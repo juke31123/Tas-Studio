@@ -81,9 +81,9 @@ internal sealed class EngineSearchSimulation : IBranchSearchSimulation
             validator.Match(actual,-50f*UnityEngine.Time.fixedDeltaTime*_simulation.Player.gravity,
                 _simulation.Physics.PlayerTouch.Ceiling || _simulation.Player.onGround);
         }
-        Match(EngineFixture.Sample(_simulation,0,0,"start",prefix.CaptureOrbs,prefix.CaptureMovers,prefix.CaptureSprings,prefix.CaptureUpgrades));
+        Match(EngineFixture.Sample(_simulation,0,0,"start",prefix.CaptureOrbs,prefix.CaptureMovers,prefix.CaptureSprings,prefix.CaptureUpgrades,prefix.CaptureAllUpgradeBoxes));
         int frame=0;
-        _simulation.StudioSample=(pu,phase) => { if(phase=="frame-end") Match(EngineFixture.Sample(_simulation,frame,pu,phase,prefix.CaptureOrbs,prefix.CaptureMovers,prefix.CaptureSprings,prefix.CaptureUpgrades)); };
+        _simulation.StudioSample=(pu,phase) => { if(phase=="frame-end") Match(EngineFixture.Sample(_simulation,frame,pu,phase,prefix.CaptureOrbs,prefix.CaptureMovers,prefix.CaptureSprings,prefix.CaptureUpgrades,prefix.CaptureAllUpgradeBoxes)); };
         try
         {
             for(;frame<prefix.Inputs.Count;frame++)

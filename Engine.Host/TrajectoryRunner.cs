@@ -71,7 +71,7 @@ internal static class TrajectoryRunner
                         }
                     }
                     committed = sim.CapturePreview(); committedFrame = history.Count;
-                    var actual = EngineFixture.Sample(sim.Native, 0, 0, "start", trace.CaptureOrbs, trace.CaptureMovers, trace.CaptureSprings, trace.CaptureUpgrades);
+                    var actual = EngineFixture.Sample(sim.Native, 0, 0, "start", trace.CaptureOrbs, trace.CaptureMovers, trace.CaptureSprings, trace.CaptureUpgrades,trace.CaptureAllUpgradeBoxes);
                     if (request.NextFramePrepared) actual.Fields["clock/capture-ticks"]=sim.Native.StudioPreparedCaptureTicks().ToString(System.Globalization.CultureInfo.InvariantCulture);
                     string difference = request.Expected.Fields.FirstOrDefault(p => !actual.Fields.TryGetValue(p.Key, out string value) ||
                         !CustomMapPhysics.Matches(p.Key, p.Value, value, custom)).Key;

@@ -19,7 +19,7 @@ param(
     [switch]$TrajectoryLive,
     [switch]$TrajectoryPuSteps,
     [switch]$RuntimeBenchmark,
-    [ValidateSet('reset','spike','spike-dash')][string]$PreviewInteraction,
+    [ValidateSet('reset','spike','spike-dash','wall-jump','wall-jump-poor','wall-jump-inactive','upgrade-unsupported-poor')][string]$PreviewInteraction,
     [ValidateRange(0,999999)][int]$TrajectoryAnchorFrame=0,
     [switch]$VerifyCompactMovie,
     [ValidateSet('chain','beam','wave')][string[]]$SearchModes = @('chain','beam'),

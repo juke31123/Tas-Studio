@@ -31,6 +31,7 @@ namespace Igtap.Tas.Core.Simulation
         public bool CaptureMovers;
         public bool CaptureSprings;
         public bool CaptureUpgrades;
+        public bool CaptureAllUpgradeBoxes;
         public double StartPhase;
         public FrameInput Previous;
         public List<FrameInput> Inputs = new List<FrameInput>();
@@ -46,7 +47,7 @@ namespace Igtap.Tas.Core.Simulation
                 Array.IndexOf(new[] { 30, 50, 60, 100, 120, 144, 165, 244, 280 }, Fps) < 0 ||
                 double.IsNaN(StartPhase) || double.IsInfinity(StartPhase) || StartPhase < 0 || StartPhase >= FrameTiming.PuSeconds ||
                 Inputs == null || Inputs.Count > Movie.MaxFrames || Samples == null || Samples.Count > 4 * Movie.MaxFrames ||
-                PreparedNextFrames == null || PreparedNextFrames.Count != 0 && PreparedNextFrames.Count != Inputs.Count ||
+                PreparedNextFrames == null || PreparedNextFrames.Count != 0 && PreparedNextFrames.Count != Inputs.Count || CaptureAllUpgradeBoxes && !CaptureUpgrades ||
                 string.IsNullOrEmpty(GameHash) || string.IsNullOrEmpty(WorldHash))
                 throw new InvalidDataException("Incomplete simulator trace or unsupported timing contract.");
             foreach (var input in Inputs)
@@ -86,7 +87,7 @@ namespace Igtap.Tas.Core.Simulation
         {
             native.Validate(); offline.Validate();
             var result = new SimulationComparison();
-            if (native.GameHash != offline.GameHash || native.WorldHash != offline.WorldHash || native.AnimationHash != offline.AnimationHash || native.CaptureOrbs != offline.CaptureOrbs || native.CaptureMovers != offline.CaptureMovers || native.CaptureSprings != offline.CaptureSprings || native.CaptureUpgrades!=offline.CaptureUpgrades || native.Fps != offline.Fps || native.AdvanceMode != offline.AdvanceMode ||
+            if (native.GameHash != offline.GameHash || native.WorldHash != offline.WorldHash || native.AnimationHash != offline.AnimationHash || native.CaptureOrbs != offline.CaptureOrbs || native.CaptureMovers != offline.CaptureMovers || native.CaptureSprings != offline.CaptureSprings || native.CaptureUpgrades!=offline.CaptureUpgrades || native.CaptureAllUpgradeBoxes!=offline.CaptureAllUpgradeBoxes || native.Fps != offline.Fps || native.AdvanceMode != offline.AdvanceMode ||
                 native.StartFrame != offline.StartFrame || Double(native.StartPhase) != Double(offline.StartPhase) ||
                 !SameInput(native.Previous, offline.Previous) || native.Inputs.Count != offline.Inputs.Count ||
                 native.Inputs.Where((input, i) => !SameInput(input, offline.Inputs[i])).Any())

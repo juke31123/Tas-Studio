@@ -18,7 +18,7 @@ internal static class SearchCacheChecks
             string capture=Path.Combine(directory,"engine");var prefix=SimulationTrace.Read(Path.Combine(capture,"native.trace.json"));prefix.Validate();EngineFixture.Validate(capture,prefix);
             const long budget=256*1024;
             var sim=new EngineSearchSimulation(job,capture,prefix,()=>false,budget);
-            string Hash() => SearchFiles.Hash(EngineFixture.Sample(sim.Native,0,0,"cache-check",true,true,true).Fields);
+            string Hash() => SearchFiles.Hash(EngineFixture.Sample(sim.Native,0,0,"cache-check",true,true,true,true,true).Fields);
             int checks=0;
             void Check(bool value,string why){if(!value)throw new InvalidOperationException(why);checks++;}
             void Advance(int first,int last)

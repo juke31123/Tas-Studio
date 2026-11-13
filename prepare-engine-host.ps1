@@ -206,6 +206,9 @@ if (!$shop.Contains('public sealed class Shop')) { throw 'Unexpected reference S
 $syncLocal = 'bool unlocksChange = false;'
 if (!$shop.Contains($syncLocal)) { throw 'Unexpected purchase synchronization boundary.' }
 $shop=$shop.Replace($syncLocal,'if (_sim.Physics.StudioFrames) StudioSyncLocals(); '+$syncLocal)
+$purchaseGuard='if (box.upgrade == localUpgrades.localUpgradeSet.GLOBAL && box.globalUpgrade == globalStats.globalUpgradeSet.spawnNewAtom && !AtomPrestige(box, currency)) return;'
+if (!$shop.Contains($purchaseGuard)) { throw 'Unexpected affordable purchase boundary.' }
+$shop=$shop.Replace($purchaseGuard,'if (_sim.Physics.StudioFrames) _sim.StudioCheckUpgradePurchase(box); '+$purchaseGuard)
 [IO.File]::WriteAllText($shopPath, $shop.Replace('public sealed class Shop', 'public sealed partial class Shop'))
 # Keep the original OfflineSolver's archive/mutations/splicing and workers.
 # Its execution boundary uses movie frames and our verified scheduler instead

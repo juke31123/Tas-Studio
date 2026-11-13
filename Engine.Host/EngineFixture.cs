@@ -50,7 +50,7 @@ internal static class EngineFixture
         return new StudioInput { X = input.X, Y = input.Y, Held = (int)input.Held, Press = press, Release = release };
     }
 
-    public static SimulationSample Sample(Simulation simulation, int frame, int pu, string phase, bool orbs = false, bool movers = false, bool springs = false,bool upgrades=false)
+    public static SimulationSample Sample(Simulation simulation, int frame, int pu, string phase, bool orbs = false, bool movers = false, bool springs = false,bool upgrades=false,bool allUpgradeBoxes=false)
     {
         var sample = new SimulationSample { Frame = frame, Pu = pu, Phase = phase };
         SimulationFieldCapture.AddPlayer(sample.Fields, simulation.Player);
@@ -65,7 +65,7 @@ internal static class EngineFixture
         SimulationFieldCapture.AddRandom(sample.Fields, UnityEngine.Random.state);
         SimulationFieldCapture.AddEconomy(sample.Fields, globalStats.currencyLookup, globalStats.globalUpgradeDict);
         if(VmanScript.isCurrentlyVman)SimulationFieldCapture.AddVman(sample.Fields,VmanScript.vmanTimeLeft,VmanScript.vmanScore);
-        if(upgrades){foreach(var box in simulation.World.All<upgradeBox>())if(box.upgrade==localUpgrades.localUpgradeSet.cashPerLoop)SimulationFieldCapture.AddCashBox(sample.Fields,box,box.GetInstanceID());
+        if(upgrades){foreach(var box in simulation.World.All<upgradeBox>())if(allUpgradeBoxes || box.upgrade==localUpgrades.localUpgradeSet.cashPerLoop)SimulationFieldCapture.AddCashBox(sample.Fields,box,box.GetInstanceID());
             foreach(var local in simulation.World.All<localUpgrades>())SimulationFieldCapture.AddLocalUpgrades(sample.Fields,local,local.GetInstanceID());}
         if (orbs) foreach (var orb in simulation.StudioOrbs) SimulationFieldCapture.AddOrb(sample.Fields, orb, orb.GetInstanceID());
         if (springs) foreach (var spring in simulation.World.All<SpringScript>()) SimulationFieldCapture.AddScript(sample.Fields, spring, "spring/" + spring.GetInstanceID());

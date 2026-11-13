@@ -15,6 +15,7 @@ internal static class PreviewInteractionProbe
     {
         string path=Path.Combine(root,"preview-interaction.txt"); Mode=File.Exists(path)?File.ReadAllText(path).Trim():null;
         if (Mode==null || Mode=="reset") return;
+        if(Mode.StartsWith("wall-jump") || Mode=="upgrade-unsupported-poor"){UpgradeBoxProbe.Prepare(Mode);return;}
         var player=UnityEngine.Object.FindFirstObjectByType<Movement>();
         var go=new GameObject("Tas Studio owned spike fixture");
         go.layer=LayerMask.NameToLayer("Spikes"); if(go.layer<0)throw new Exception("Missing native Spikes layer.");
@@ -26,11 +27,13 @@ internal static class PreviewInteractionProbe
     {
         if (Mode=="reset") {if(frame==4) return new FrameInput {X=1,Held=Buttons.Reset}; return otherwise;}
         if (Mode=="spike" || Mode=="spike-dash") return new FrameInput {Held=Mode=="spike-dash" && frame==0?Buttons.Dash:0};
+        if(Mode?.StartsWith("wall-jump")==true || Mode=="upgrade-unsupported-poor")return default;
         return otherwise;
     }
     internal static void Check(SimulationTrace trace,string directory)
     {
         if(Mode==null)return;
+        if(Mode.StartsWith("wall-jump") || Mode=="upgrade-unsupported-poor"){UpgradeBoxProbe.Check(trace,directory,Mode);return;}
         var samples=trace.Samples.Where(s=>s.Phase=="after-pu").ToArray();
         int death=Array.FindIndex(samples,s=>s.Fields["movement/isDead"]=="True");
         if(Mode.StartsWith("spike") && death<0)throw new Exception("Owned spike fixture did not kill the native player.");

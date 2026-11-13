@@ -132,7 +132,7 @@ namespace Igtap.Tas.Runtime
             _movers = allComponents.OfType<PlatformMover>().ToArray();
             _historyMovers = _movers;
             _springs = allComponents.OfType<SpringScript>().ToArray();
-            _boxes=allComponents.OfType<upgradeBox>().Where(box=>box.upgrade==localUpgrades.localUpgradeSet.cashPerLoop).ToArray();
+            _boxes=allComponents.OfType<upgradeBox>().ToArray();
             _upgrades=allComponents.OfType<localUpgrades>().ToArray();
             string randomBefore=JsonUtility.ToJson(UnityEngine.Random.state);
             using var geometry=new SimulationGeometryCapture();
@@ -269,7 +269,7 @@ namespace Igtap.Tas.Runtime
                 previous.Release = session.PreviousInput.Held & ~previous.Held;
                 previous.ExactEdges = true;
             }
-            var trace = new SimulationTrace { CaptureUpgrades=true, CaptureOrbs = true, CaptureMovers = true, CaptureSprings = true, Fps = session.Movie.FrameRate, StartFrame = session.Cursor, StartPhase = session.PuPhase,
+            var trace = new SimulationTrace { CaptureAllUpgradeBoxes=true, CaptureUpgrades=true, CaptureOrbs = true, CaptureMovers = true, CaptureSprings = true, Fps = session.Movie.FrameRate, StartFrame = session.Cursor, StartPhase = session.PuPhase,
                 Previous = previous, GameHash = session.Movie.GameHash, Coverage = coverage.ToArray() };
             trace.Samples.Add(Sample(session, 0, 0, "start"));
             return new Snapshot{World=world,Start=start,Animation=animation,Geometry=geometry.Report,Trace=trace};

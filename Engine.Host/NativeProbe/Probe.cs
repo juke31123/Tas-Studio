@@ -392,7 +392,13 @@ public sealed class EngineProbe : MonoBehaviour
             if(stage==0){if(!(bool)Get("IsMainMenu")||Time.realtimeSinceStartupAsDouble-began<3||!HotMapProbe.Ready(Root))return;saved=SaveHash();stage=1;NewRun();}
             else if(stage==1&&Mode=="Recording"&&Frozen)
             {
-                stage=2; Queue(()=>{dir=Path.Combine(Root,"fps-"+rates[rateIndex]);PreviewInteractionProbe.Prepare(Root);capture.GetMethod("Export",Flags).Invoke(null,new object[]{session,dir});HotMapProbe.CheckCapture(session,Root,dir);trace=SearchFiles.Read<SimulationTrace>(Path.Combine(dir,"native.trace.json"));frame=pu=0;Set("UseAuthoredInput",true);Set("AuthoredInput",InputForFrame());if(TrajectoryProbe.Begin(session,Root,rates[rateIndex]))stage=50;else NextFrame();});
+                // Let Unity's following paused EarlyUpdate settle fixture
+                // collider transforms before asking its geometry API to export.
+                stage=6;Queue(()=>PreviewInteractionProbe.Prepare(Root));
+            }
+            else if(stage==6&&Mode=="Recording"&&Frozen)
+            {
+                stage=2; Queue(()=>{dir=Path.Combine(Root,"fps-"+rates[rateIndex]);capture.GetMethod("Export",Flags).Invoke(null,new object[]{session,dir});HotMapProbe.CheckCapture(session,Root,dir);trace=SearchFiles.Read<SimulationTrace>(Path.Combine(dir,"native.trace.json"));frame=pu=0;Set("UseAuthoredInput",true);Set("AuthoredInput",InputForFrame());if(TrajectoryProbe.Begin(session,Root,rates[rateIndex]))stage=50;else NextFrame();});
             }
             else if(stage==50 && Frozen && TrajectoryProbe.Ready(session,dir))
             {
@@ -403,7 +409,7 @@ public sealed class EngineProbe : MonoBehaviour
             {stage=52;Queue(()=>Call("TogglePause"));}
             else if(stage==52 && Frozen)
             {
-                stage=3;Queue(()=>{trace.Validate();TrajectoryProbe.Check(trace,dir);TrajectoryProbe.CheckLive(session,dir);SearchFiles.Write(Path.Combine(dir,"native.trace.json"),trace);Log("Captured live trajectory "+rates[rateIndex]+" FPS, "+trace.Inputs.Count+" frames");trace=null;Call("Stop");});
+                stage=3;Queue(()=>{trace.Validate();TrajectoryProbe.Check(trace,dir);TrajectoryProbe.CheckLive(session,dir);PreviewInteractionProbe.Check(trace,dir);SearchFiles.Write(Path.Combine(dir,"native.trace.json"),trace);Log("Captured live trajectory "+rates[rateIndex]+" FPS, "+trace.Inputs.Count+" frames");trace=null;Call("Stop");});
             }
             else if(stage==2&&Frozen&&Cursor==frame)
             {
