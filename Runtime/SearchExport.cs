@@ -13,8 +13,8 @@ namespace Igtap.Tas.Runtime
     {
         public static void CaptureEngineSummary(TasSession session,SearchJob job)
         {
-            session.Adapter.ValidateLoadedMap(session.Movie.StartSetup,true);
-            job.CustomMapId=session.Movie.StartSetup?.CustomMapId??"";job.CustomMapName=session.Movie.StartSetup?.CustomMapName??"";job.CustomMapHash=session.Movie.StartSetup?.CustomMapHash??"";
+            session.Adapter.ValidateLoadedMap(session.RunStartSetup,true);
+            job.CustomMapId=session.RunStartSetup?.CustomMapId??"";job.CustomMapName=session.RunStartSetup?.CustomMapName??"";job.CustomMapHash=session.RunStartSetup?.CustomMapHash??"";
             var player=session.Adapter.Player;
             var motion=PlayerTelemetry.Capture(player,session.MovementTimers,out var parameters);
             var body=player.GetComponent<Rigidbody2D>(); var world=PlayerWorld(player); motion.Position=world;
@@ -37,8 +37,8 @@ namespace Igtap.Tas.Runtime
         }
         public static void Capture(TasSession session, SearchJob job,bool mapOnly=false)
         {
-            session.Adapter.ValidateLoadedMap(session.Movie.StartSetup,true);
-            job.CustomMapId=session.Movie.StartSetup?.CustomMapId??"";job.CustomMapName=session.Movie.StartSetup?.CustomMapName??"";job.CustomMapHash=session.Movie.StartSetup?.CustomMapHash??"";
+            session.Adapter.ValidateLoadedMap(session.RunStartSetup,true);
+            job.CustomMapId=session.RunStartSetup?.CustomMapId??"";job.CustomMapName=session.RunStartSetup?.CustomMapName??"";job.CustomMapHash=session.RunStartSetup?.CustomMapHash??"";
             var player = session.Adapter.Player;
             var motion = PlayerTelemetry.Capture(player, session.MovementTimers, out var parameters);
             var body = player.GetComponent<Rigidbody2D>();

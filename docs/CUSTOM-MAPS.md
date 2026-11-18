@@ -16,9 +16,13 @@ progress start fresh; this does not continue the player's existing map save.
 Navigator's spawn-switcher keys are suppressed while the TAS owns the game.
 
 The movie stores the map folder ID, name and SHA256 fingerprint, as well as the
-VMAN settings. Playback, rebuilds and search verification recreate the same map.
-Install the same map on another machine. Missing or changed map documents/assets
-are rejected before playback. Hub metadata does not affect the fingerprint.
+VMAN settings. Playback prefers the recorded ID and revision, then looks for
+the same content under an installed ID. If exactly one installed map shares the
+recorded name, Tas Studio can try that revision with the original startup and
+replay checks. Duplicate names need an exact content match. Navigator's loaded
+scene root uses the recorded ID in world witness keys, so a folder rename alone
+does not cause a desync. Other hierarchy, player and world differences still
+stop verification. Hub metadata does not affect the fingerprint.
 Map files are read in place; they are not copied into the TAS or release ZIP.
 Both the normal save and Navigator's map-save paths are isolated while the TAS
 is active. Stopping returns to the main menu.
@@ -26,7 +30,7 @@ is active. Stopping returns to the main menu.
 The in-game settings and desktop window titles show the map Navigator actually
 loaded. A map change invalidates the checkpoint-map geometry; it refreshes
 automatically once the TAS is initialized and paused. A capture must match the
-TAS map ID and loaded revision. Each external search job also stores this map
+resolved map ID and loaded revision. Each external search job also stores this map
 identity, which is checked against its exported world before simulation.
 Geometry comes from the loaded scene, so new maps need no hand-authored geometry
 file or entry in Studio's source code. Installing a map does not switch an

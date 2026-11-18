@@ -40,6 +40,8 @@ namespace Igtap.Tas.Runtime
         public string SceneFor(TasStartSetup setup) => ConfiguredStart.SceneFor(setup);
         public void FinishWorldSetup(TasStartSetup setup) => ConfiguredStart.FinishWorldSetup(setup);
         public void PrepareStart(TasStartSetup setup,bool recording)=>CustomMaps.PrepareStart(setup,recording);
+        internal TasStartSetup ResolveReplayStart(TasStartSetup setup) => CustomMaps.ResolveReplayStart(setup);
+        internal void SetReplayMapAlias(TasStartSetup recorded, TasStartSetup loaded) => WorldCheckpoint.SetMapAlias(recorded, loaded);
         public bool PrepareCustomMap(TasStartSetup setup)=>CustomMaps.LoadDuringBarrier(setup,Player);
         public void ValidateLoadedMap(TasStartSetup setup,bool verifyFiles=false)=>CustomMaps.RequireLoaded(setup,verifyFiles);
         public string LoadedMapLabel=>CustomMaps.CurrentLabel;

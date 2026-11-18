@@ -64,5 +64,47 @@ namespace Igtap.Tas.Core
             }
             stream.FlushFinalBlock();return BitConverter.ToString(sha.Hash).Replace("-","").ToLowerInvariant();
         }
+
+        public static TasStartSetup ResolveForReplay(string root, TasStartSetup recorded)
+        {
+            if (recorded?.IsCustomMap != true) return recorded;
+            ValidateId(recorded.CustomMapId);
+            if (string.IsNullOrWhiteSpace(recorded.CustomMapHash))
+                throw new InvalidDataException("This TAS has no recorded custom-map checksum.");
+
+            string original = recorded.CustomMapId;
+            string originalHash = File.Exists(Path.Combine(root, original, "map.json"))
+                ? Fingerprint(root, original) : null;
+            if (originalHash == recorded.CustomMapHash) return recorded;
+
+            var maps = List(root);
+            var sameName = maps.Where(map => string.Equals(map.Name, recorded.CustomMapName, StringComparison.OrdinalIgnoreCase)).ToArray();
+            string fallbackHash = null;
+            // Navigator IDs can change on export, upload or install. Check the
+            // contents first, including when the display name has also changed.
+            foreach (var map in sameName.Concat(maps.Except(sameName)))
+            {
+                string hash;
+                try { hash = map.Id == original ? originalHash : Fingerprint(root, map.Id); }
+                catch (IOException) when (!sameName.Contains(map)) { continue; }
+                catch (UnauthorizedAccessException) when (!sameName.Contains(map)) { continue; }
+                if (hash == recorded.CustomMapHash) return WithMap(recorded, map, hash);
+                if (sameName.Length == 1 && map == sameName[0]) fallbackHash = hash;
+            }
+            if (fallbackHash != null) return WithMap(recorded, sameName[0], fallbackHash);
+            if (sameName.Length > 1)
+                throw new InvalidOperationException("Several installed maps are named " + recorded.CustomMapName +
+                    ". Install the recorded revision so Tas Studio can identify it by content.");
+            throw new FileNotFoundException("Install the recorded custom map " + recorded.CustomMapName + " (" + original + ") in Recharge Navigator.");
+        }
+
+        private static TasStartSetup WithMap(TasStartSetup recorded, CustomMapInfo map, string hash)
+        {
+            var resolved = recorded.Clone();
+            resolved.CustomMapId = map.Id;
+            resolved.CustomMapName = map.Name;
+            resolved.CustomMapHash = hash;
+            return resolved;
+        }
     }
 }

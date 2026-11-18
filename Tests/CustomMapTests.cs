@@ -31,6 +31,21 @@ internal static class CustomMapTests
             Reject(()=>CustomMapCatalog.Fingerprint(root,"../first"),"Path traversal");Reject(()=>CustomMapCatalog.Fingerprint(root,"missing"),"Missing map");
             var setup=new TasStartSetup{CustomMapId="first",CustomMapName="Alpha",CustomMapHash=CustomMapCatalog.Fingerprint(root,"first"),VmanMode=2};setup.Validate();
             var clone=setup.Clone();Check(clone.IsCustomMap&&clone.CustomMapHash==setup.CustomMapHash&&clone.VmanMode==2,"Configured starts retain map and VMAN settings.");
+            var alias = setup.Clone();
+            alias.CustomMapId = "old-export";
+            var resolved = CustomMapCatalog.ResolveForReplay(root, alias);
+            Check(resolved.CustomMapId == "first" && resolved.CustomMapHash == alias.CustomMapHash &&
+                alias.CustomMapId == "old-export", "Matching map content resolves a changed Navigator ID without rewriting the recording.");
+            alias.CustomMapHash = new string('f', 64);
+            resolved = CustomMapCatalog.ResolveForReplay(root, alias);
+            Check(resolved.CustomMapId == "first" && resolved.CustomMapHash == setup.CustomMapHash &&
+                alias.CustomMapHash != resolved.CustomMapHash, "A unique same-name revision can be verified while retaining the recorded hash.");
+            File.WriteAllText(Path.Combine(root, "second", "map.json"), "{\"name\":\"Alpha\",\"groups\":[]}");
+            Reject(() => CustomMapCatalog.ResolveForReplay(root, alias), "Two different map revisions share the recorded name");
+            alias.CustomMapHash = setup.CustomMapHash;
+            Check(CustomMapCatalog.ResolveForReplay(root, alias).CustomMapId == "first", "An exact revision resolves an ambiguous display name.");
+            alias.CustomMapName = "Unavailable map"; alias.CustomMapHash = new string('f', 64);
+            Reject(() => CustomMapCatalog.ResolveForReplay(root, alias), "No installed map matches the recording");
             setup.RequireLoadedMap("first",setup.CustomMapHash);count++;
             Reject(()=>setup.RequireLoadedMap("second",setup.CustomMapHash),"Capturing the wrong loaded map");
             Reject(()=>setup.RequireLoadedMap("first",new string('0',64)),"Capturing a different loaded map revision");

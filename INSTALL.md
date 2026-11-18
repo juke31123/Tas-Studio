@@ -1,4 +1,15 @@
-# Tas Studio 0.19.9
+# Tas Studio 0.20.0
+
+Replay verifies inputs, timing, player probes and world checkpoints across
+game, Unity, Recharge and mod updates. Different game or mod fingerprints
+are shown as context while replay checks the recording. A state or timing
+difference still pauses playback at the first mismatch. Save-backed starts
+require their original progress files.
+
+Navigator maps resolve by content if the installation ID changed. A unique
+map with the same display name can also be tried against the recorded world.
+The supplied Cold run recorded as up-v2 completed all 927 frames at 60 FPS
+with the installed cold map.
 
 New in 0.19.9: ordinary single-purchase Wall jump boxes are supported by the
 external simulator, including timed/practice VMAN's free-purchase rules.
@@ -49,10 +60,6 @@ New in 0.19.3: the player stats table adds **Can jump** and **Can dash**.
 Jump readiness identifies ground, wall, air, dash or hyper jumps. The live checks
 include unlocks, charges, ascent restrictions, control locks and dash cooldown.
 Version 0.19.3 introduced the current-state rows; 0.19.4 adds their forecasts.
-
-This updates the main mod DLL. Existing recordings retain their strict mod-file
-fingerprint checks; a full update changes that fingerprint, unlike the previous
-solver-only Cold fix.
 
 New in 0.19.2: custom-map searches reconstruct transient composite-contact
 differences only when positions keep matching and the full search-start witness
@@ -243,6 +250,6 @@ F5 reopens both desktop windows. F9 opens the desktop States page; F10 opens des
 
 Edit cells directly in the Frame Editor. Save edits applies the draft and starts any necessary rebuild; Discard cancels it. Named checkpoints reconstruct state by replay, not instant memory restoration. Predictions do not simulate collisions or triggers.
 
-This package contains the mod, simulator tools/runtimes, dependency notices and documentation. Personal recordings, states, saves and game assemblies are excluded. Existing data is preserved, but recordings from other mod builds are incompatible under the current fingerprint checks.
+This package contains the mod, simulator tools/runtimes, dependency notices and documentation. Personal recordings, states, saves and game assemblies are excluded. Preserve existing data when updating. Replay supports the current format and startup protocol and checks the recorded state under the installed game.
 
 See docs/DESKTOP-STUDIO.md, docs/FRAME-EDITOR.md, docs/SAVESTATES.md and docs/PLAYER-STATS.md.

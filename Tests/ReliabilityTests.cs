@@ -17,6 +17,17 @@ internal static class ReliabilityTests
         string folder = Path.Combine(Path.GetTempPath(), "tas-reliability-" + Guid.NewGuid().ToString("N"));
         try
         {
+            const string secrets = "/0:Utils/globalStats#2/secretsFound";
+            var before = new WorldWitness { Exact = { [secrets] = "13", ["random"] = "seed" } };
+            var after = new WorldWitness { Exact = { [secrets] = "0", ["random"] = "seed" } };
+            Check(before.Difference(after) == null, "Steam achievement counts do not affect replay verification.");
+            after.Exact.Remove(secrets);
+            Check(before.Difference(after) == null && after.Difference(before) == null,
+                "The account statistic can be absent in either witness.");
+            after.Exact["/0:Utils/otherScript#2/secretsFound"] = "0";
+            Check(before.Difference(after) == "World object/field count differs", "An unrelated field cannot pass as the Steam statistic.");
+            after.Exact["random"] = "changed";
+            Check(before.Difference(after).StartsWith("random differs"), "Random-state divergence is still checked.");
             var original = Sample(); var edited = original.CopyForEdit();
             FrameCellEdit.Paint(edited, 2, 2, InputColumn.Jump, true, 0);
             Check(original.Frames[2].Input.Held == 0 && original.Frames[2].Expected != null, "Draft row mutation does not touch live movie");

@@ -36,14 +36,31 @@ namespace Igtap.Tas.Core
         public string Difference(WorldWitness actual)
         {
             if (actual == null) return "World verification data missing";
+            int exactCount = Exact.Count;
             foreach (var pair in Exact)
+            {
+                // The game reads this counter for Steam's Secrets stat and
+                // achievements. It varies with the account's PlayerPrefs.
+                if (IsAchievementCounter(pair.Key)) { exactCount--; continue; }
                 if (!actual.Exact.TryGetValue(pair.Key, out var value) || value != pair.Value)
                     return pair.Key + " differs (expected " + pair.Value + ", actual " + (value ?? "missing") + ")";
+            }
             foreach (var pair in Numbers)
                 if (!actual.Numbers.TryGetValue(pair.Key, out var value) || double.IsNaN(value) || double.IsInfinity(value) || Math.Abs(pair.Value - value) > 0.0001)
                     return pair.Key + " differs (expected " + pair.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
                         ", actual " + (actual.Numbers.ContainsKey(pair.Key) ? value.ToString("R", System.Globalization.CultureInfo.InvariantCulture) : "missing") + ")";
-            return Exact.Count != actual.Exact.Count || Numbers.Count != actual.Numbers.Count ? "World object/field count differs" : null;
+            int actualExactCount = actual.Exact.Count;
+            foreach (string key in actual.Exact.Keys)
+                if (IsAchievementCounter(key)) actualExactCount--;
+            return exactCount != actualExactCount || Numbers.Count != actual.Numbers.Count ? "World object/field count differs" : null;
+        }
+
+        private static bool IsAchievementCounter(string key)
+        {
+            const string field = "/secretsFound";
+            if (key.Length <= field.Length || !key.EndsWith(field, StringComparison.Ordinal)) return false;
+            int component = key.LastIndexOf('/', key.Length - field.Length - 1);
+            return component >= 0 && key.IndexOf("/globalStats#", component, StringComparison.Ordinal) == component;
         }
     }
 

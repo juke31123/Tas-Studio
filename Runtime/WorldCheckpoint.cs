@@ -37,6 +37,7 @@ namespace Igtap.Tas.Runtime
         };
         private static readonly Dictionary<Type,Provider> Matched=new Dictionary<Type,Provider>();
         private static readonly WorldWitnessCache ReplayEncoding=new WorldWitnessCache();
+        private static string _loadedMapRoot, _recordedMapRoot;
         private static Provider Resolve(Type type)
         {
             if(!Matched.TryGetValue(type,out var provider))
@@ -95,6 +96,10 @@ namespace Igtap.Tas.Runtime
                 if(!_paths.TryGetValue(t,out var entry))_paths.Add(t,entry=new PathEntry());
                 if(entry.Seen==_epoch)return entry.Path;
                 string parent=Path(t.parent),name=t.name;int sibling=t.GetSiblingIndex();
+                // Navigator names its scene root after the installation ID.
+                // Compare the same hierarchy under its recorded root name,
+                // before bulk collider/body keys are hashed.
+                if (parent.Length == 0 && name == _loadedMapRoot) name = _recordedMapRoot;
                 if(entry.Path==null || entry.Parent!=parent || entry.Name!=name || entry.Sibling!=sibling)
                 {entry.Parent=parent;entry.Name=name;entry.Sibling=sibling;entry.Path=parent+"/"+sibling+":"+name;}
                 entry.Seen=_epoch;return entry.Path;
@@ -120,7 +125,19 @@ namespace Igtap.Tas.Runtime
         }
         public static WorldWitness Capture()=>Capture(false);
         public static WorldWitness CaptureReplay()=>Capture(true);
-        public static void Reset()=>Context.Reset();
+        public static void Reset()
+        {
+            _loadedMapRoot = _recordedMapRoot = null;
+            Context.Reset();
+        }
+        internal static void SetMapAlias(TasStartSetup recorded, TasStartSetup loaded)
+        {
+            if (recorded?.IsCustomMap == true && loaded?.IsCustomMap == true && recorded.CustomMapId != loaded.CustomMapId)
+            {
+                _loadedMapRoot = "RechargeMap_" + loaded.CustomMapId;
+                _recordedMapRoot = "RechargeMap_" + recorded.CustomMapId;
+            }
+        }
         private static WorldWitness Capture(bool compact)
         {
             using var context=Context.Begin(SceneManager.GetActiveScene());

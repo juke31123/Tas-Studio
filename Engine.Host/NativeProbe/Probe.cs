@@ -42,6 +42,8 @@ public sealed class EngineProbe : MonoBehaviour
     Movie reference;
     int referenceLimit, referenceCompared, referenceMismatchFrame = -1;
     int referenceCaptureStart;
+    bool replayOnly, replayFinished;
+    string replayStatus;
     int referenceUnprobed;
     string referenceMismatch;
     float searchGoalX,searchGoalY;
@@ -80,6 +82,7 @@ public sealed class EngineProbe : MonoBehaviour
     void InitializeCapture()
     {
         Instance=this; began=Time.realtimeSinceStartupAsDouble;
+        replayOnly = File.Exists(Path.Combine(Root, "native-replay-only.txt"));
         if(File.Exists(Path.Combine(Root,"timeout-seconds.txt"))) timeoutSeconds=int.Parse(File.ReadAllText(Path.Combine(Root,"timeout-seconds.txt")));
         if(File.Exists(Path.Combine(Root,"capture-frames.txt")))captureFrames=int.Parse(File.ReadAllText(Path.Combine(Root,"capture-frames.txt")));
         if(File.Exists(Path.Combine(Root,"search-modes.txt")))searchModes=File.ReadAllText(Path.Combine(Root,"search-modes.txt")).Trim().Split(',');
@@ -97,7 +100,7 @@ public sealed class EngineProbe : MonoBehaviour
             reference = SearchFiles.Read<Movie>(Path.Combine(Root, "reference.tas.json"));
             reference.Validate();
             if (reference.StartSetup == null || reference.Frames.Count == 0) throw new InvalidOperationException("A configured nonempty reference TAS is required.");
-            if (reference.Seed != 12345 || reference.WarmupFrames != 10) throw new NotSupportedException("This capture driver requires the standard seed and ten-frame bootstrap.");
+            if (!replayOnly && (reference.Seed != 12345 || reference.WarmupFrames != 10)) throw new NotSupportedException("This capture driver requires the standard seed and ten-frame bootstrap.");
             referenceLimit = File.Exists(Path.Combine(Root, "reference-end.txt")) ? int.Parse(File.ReadAllText(Path.Combine(Root, "reference-end.txt"))) : reference.Frames.Count;
             referenceCaptureStart = File.Exists(Path.Combine(Root,"reference-start.txt")) ? int.Parse(File.ReadAllText(Path.Combine(Root,"reference-start.txt"))) : 0;
             if (referenceLimit < 1 || referenceLimit > reference.Frames.Count) throw new ArgumentOutOfRangeException("Reference end frame");
@@ -117,7 +120,7 @@ public sealed class EngineProbe : MonoBehaviour
             harmony.Patch(AppDomain.CurrentDomain.GetAssemblies().Single(a=>a.GetName().Name=="TasStudio").GetType("Igtap.Tas.Runtime.ConfiguredStart").GetMethod("Apply",Flags),
                 prefix:new HarmonyMethod(typeof(EngineProbe),nameof(BeforeConfiguredStart)),postfix:new HarmonyMethod(typeof(EngineProbe),nameof(AfterConfiguredStart)));
         }
-        if (reference != null)
+        if (reference != null && !replayOnly)
         {
             harmony.Patch(typeof(pauseMenuScript).GetMethod("Update", Flags), prefix:new HarmonyMethod(typeof(EngineProbe), nameof(BeforeMenu)), postfix:new HarmonyMethod(typeof(EngineProbe), nameof(AfterMenu)));
             harmony.Patch(typeof(Movement).GetMethod("Update", Flags), prefix:new HarmonyMethod(typeof(EngineProbe), nameof(BeforeMovementUpdate)));
@@ -387,6 +390,7 @@ public sealed class EngineProbe : MonoBehaviour
             if(session==null){var a=AppDomain.CurrentDomain.GetAssemblies().FirstOrDefault(x=>x.GetName().Name=="TasStudio");if(a==null)return;session=a.GetType("Igtap.Tas.Runtime.GamePatches").GetField("Session",Flags).GetValue(null);if(session==null)return;capture=a.GetType("Igtap.Tas.Runtime.SimulationCapture");}
             if(failing){if(!Active){Application.Quit();enabled=false;}return;}
             if(Time.realtimeSinceStartupAsDouble-began>timeoutSeconds){Fail("timeout "+Mode);return;}
+            if(replayOnly){UpdateNativeReplay();return;}
             if(Mode=="Desync"){Fail(Get("Status").ToString());return;}
             if (reference != null) { UpdateReference(); return; }
             if(stage==0){if(!(bool)Get("IsMainMenu")||Time.realtimeSinceStartupAsDouble-began<3||!HotMapProbe.Ready(Root))return;saved=SaveHash();stage=1;NewRun();}
@@ -423,6 +427,44 @@ public sealed class EngineProbe : MonoBehaviour
                 if(++rateIndex<rates.Length){stage=1;NewRun();}else{Log("PASS captures complete; original saved progress unchanged");Application.Quit();enabled=false;}}
         }
         catch(Exception e){Fail(e.ToString());}
+    }
+
+    void UpdateNativeReplay()
+    {
+        if (stage == 0 && (bool)Get("IsMainMenu") && Time.realtimeSinceStartupAsDouble - began >= 3)
+        {
+            stage = 1; saved = SaveHash();
+            Queue(() =>
+            {
+                string name = "engine-probe-replay-" + Guid.NewGuid().ToString("N");
+                var store = (MovieStore)Get("Store");
+                File.Copy(Path.Combine(Root, "reference.tas.json"), store.PathFor(name));
+                Call("LoadNamed", name);
+                try { Call("StartPlayback", -1, false); }
+                catch (TargetInvocationException error)
+                {
+                    replayStatus = error.InnerException?.Message ?? error.Message;
+                    stage = 3;
+                }
+            });
+        }
+        else if (stage == 1 && (Mode == "Complete" || Mode == "Desync" || !Active))
+        {
+            replayFinished = Mode == "Complete" && Cursor == reference.Frames.Count;
+            replayStatus = Get("Status").ToString();
+            stage = 3;
+            if (Active) Queue(() => Call("Stop"));
+        }
+        else if (stage == 3 && !Active)
+        {
+            bool savedProgressUnchanged = SaveHash() == saved;
+            SearchFiles.Write(Path.Combine(Root, "native-replay.json"), new
+            {
+                Passed = replayFinished && savedProgressUnchanged, Name = reference.Name, Frame = Cursor,
+                Frames = reference.Frames.Count, Status = replayStatus, SavedProgressUnchanged = savedProgressUnchanged
+            });
+            Application.Quit(); enabled = false;
+        }
     }
     void NewRun()=>Queue(()=>{capture.GetMethod("BeginHistory",Flags).Invoke(null,null);capture.GetField("CollectHistory",Flags).SetValue(null,true);Set("FileName","engine-probe-"+rates[rateIndex]+"-"+DateTime.UtcNow.ToString("yyyyMMdd-HHmmss"));
         var setup=new TasStartSetup{Course=1,FrameRate=rates[rateIndex],Dash=true,DoubleJump=true,WallJump=true,OmniDash=true,AirDashes=2,RefillOrbs=true,Zippers=true,Light=true};

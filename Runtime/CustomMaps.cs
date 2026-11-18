@@ -71,6 +71,13 @@ namespace Igtap.Tas.Runtime
             if(!recording&&hash!=setup.CustomMapHash)throw new InvalidOperationException("The installed custom map differs from this TAS. Install the same map version: "+setup.CustomMapName);
             if(recording){setup.CustomMapHash=hash;setup.CustomMapName=CustomMapCatalog.List(MapsRoot).First(m=>m.Id==setup.CustomMapId).Name;}
         }
+        internal static TasStartSetup ResolveReplayStart(TasStartSetup setup)
+        {
+            if (setup?.IsCustomMap != true) return setup;
+            if (!Resolve() || _managerType.GetProperty("Instance", Any)?.GetValue(null) == null)
+                throw new InvalidOperationException("Enable Recharge Navigator to play this custom-map TAS.");
+            return CustomMapCatalog.ResolveForReplay(MapsRoot, setup);
+        }
         internal static void Begin()
         {
             _built=false;_settle=0;_manager=null;_loadedId=_loadedName=_loadedHash="";_generation++;
@@ -97,6 +104,7 @@ namespace Igtap.Tas.Runtime
             if(setup?.IsCustomMap!=true)return true;
             if(!_built)
             {
+                PrepareStart(setup, false);
                 _manager=_managerType.GetProperty("Instance",Any).GetValue(null);
                 Call(Type("MapUpgrades"),null,"Reset");
                 Call(_managerType,_manager,"LoadMap",setup.CustomMapId);

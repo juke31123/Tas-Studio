@@ -26,7 +26,10 @@ Bootstrap protocol 4 waits for scene activation, Movement.Start and every startu
 
 `PlaybackSpeed` parses dot/comma decimals and validates the inclusive 0.1–1 range for both UI and runtime callers. `ClockLease` limits rendering to the movie FPS multiplied by speed, rounded down to a whole FPS. Session frame boundaries reassert target FPS and disabled VSync because the game's `SettingsScript.Awake` overwrites them during scene loading. Speed never changes capture/fixed timesteps or movie inputs.
 
-Playback requires an exact match of the entire mod-set fingerprint, including the TAS DLL. Different builds are marked incompatible on load and rejected before starting playback. No old-run conversion or migration code is provided.
+Playback reports differences in game, Unity and mod fingerprints and runs the
+recorded verification checks. A changed Navigator ID resolves to the installed
+map without changing the movie. A save-backed start still needs its original
+save fingerprint. Format and startup protocol checks remain mandatory.
 
 `GamePatches` scans managed game methods for unscaled clock calls and patches game tick/iterator methods. Input replacement leaves the original action objects, bindings and UI actions intact; all game consumers of the player's known action reads use the movie snapshot. Unknown actions fall back to their original methods. `IgtapAdapter` is the build-specific seam for action lookup and movement probes.
 

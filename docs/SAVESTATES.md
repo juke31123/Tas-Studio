@@ -23,7 +23,9 @@ Providers cover currency and upgrade dictionaries; selected global progress; are
 
 This is not a full memory snapshot. Animator/audio state, arbitrary mod state, clone/atom internal graphs and native physics contact caches are not serialized or exhaustively compared. They are reconstructed only insofar as the original scene and input history reproduce them. Native Invoke/coroutine timing, cosmetic random calls, offline income and unrecorded UI interactions can still cause divergence. A matching witness is useful verification, not proof of every future outcome. A state mismatch must be fixed in the replay/start/provider implementation; never patch over it by setting recorded money or teleporting the player, which would break replay of the final TAS.
 
-Saved-game starts require unchanged original progress files. The checkpoint does not archive or overwrite the user's save directory. Fresh configured starts are preferred for portable checkpoints. Old mod builds remain incompatible and no migration path is provided.
+Saved-game starts require their original progress files. The checkpoint rebuilds
+from recorded inputs and verifies the target world on the installed game.
+Fresh configured starts are preferred for portable checkpoints.
 
 For a future instant backend, use a new explicit method/version with complete providers for native physics, every game coroutine/timer, spawned/despawned objects, clone/atom graphs, and external mutations. Preserve the timeline, backup, verification and frame-boundary contracts above. Do not silently fall back to partial field restoration.
 

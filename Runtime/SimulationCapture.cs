@@ -115,7 +115,7 @@ namespace Igtap.Tas.Runtime
         {
             if (!session.Active || !session.Frozen || session.WaitingForLoad || !session.Adapter.IsAlive || session.HasPendingEdits)
                 throw new InvalidOperationException("Pause an initialized TAS and finish pending edits before exporting the simulator test.");
-            session.Adapter.ValidateLoadedMap(session.Movie.StartSetup,true);
+            session.Adapter.ValidateLoadedMap(session.RunStartSetup,true);
             JObject animation;
             using(session.Profiler.Measure(ProfileSection.CaptureAnimation))
                 animation=SimulationAnimationCapture.Capture(session.Adapter.Player);
@@ -244,8 +244,8 @@ namespace Igtap.Tas.Runtime
             var random = JObject.Parse(JsonUtility.ToJson(UnityEngine.Random.state));
             if(VmanScript.isCurrentlyVman)
                 start["vman"]=new JObject{["timeLeft"]=VmanScript.vmanTimeLeft,["blockEnding"]=(bool)typeof(VmanScript).GetField("BlockEnding",BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic).GetValue(Singleton<VmanScript>.Instance)};
-            if(session.Movie.StartSetup?.IsCustomMap==true)
-                world["customMap"]=new JObject{["id"]=session.Movie.StartSetup.CustomMapId,["hash"]=session.Movie.StartSetup.CustomMapHash};
+            if(session.RunStartSetup?.IsCustomMap==true)
+                world["customMap"]=new JObject{["id"]=session.RunStartSetup.CustomMapId,["hash"]=session.RunStartSetup.CustomMapHash};
             start["random"] = new JArray(Enumerable.Range(0, 4).Select(i => (int)random["s" + i]));
             if (_historyValid && _historyBody == body)
             {
@@ -270,7 +270,7 @@ namespace Igtap.Tas.Runtime
                 previous.ExactEdges = true;
             }
             var trace = new SimulationTrace { CaptureAllUpgradeBoxes=true, CaptureUpgrades=true, CaptureOrbs = true, CaptureMovers = true, CaptureSprings = true, Fps = session.Movie.FrameRate, StartFrame = session.Cursor, StartPhase = session.PuPhase,
-                Previous = previous, GameHash = session.Movie.GameHash, Coverage = coverage.ToArray() };
+                Previous = previous, GameHash = EnvironmentFingerprint.Game(), Coverage = coverage.ToArray() };
             trace.Samples.Add(Sample(session, 0, 0, "start"));
             return new Snapshot{World=world,Start=start,Animation=animation,Geometry=geometry.Report,Trace=trace};
         }

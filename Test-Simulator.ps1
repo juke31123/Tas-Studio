@@ -3,6 +3,7 @@ param(
     [string]$HarmonyPath = (Join-Path $PSScriptRoot '..\.packages\lib.harmony.2.3.3\lib\net472\0Harmony.dll'),
     [string]$TasPath,
     [string]$ReferenceTasPath,
+    [switch]$ReplayOnly,
     [int]$ReferenceEndFrame = -1,
     [ValidateRange(0,999999)][int]$ReferenceCaptureStartFrame = 0,
     [switch]$SearchSmoke,
@@ -57,6 +58,9 @@ if (![string]::IsNullOrWhiteSpace($ReferenceTasPath)) {
     throw 'Pass -TasPath for a same-FPS fixture or -ReferenceTasPath to capture the actual recording. Explicit -FrameRates is available for developer regression tests.'
 }
 if ($null -eq $referencePath -and $PSBoundParameters.ContainsKey('ReferenceEndFrame')) { throw 'ReferenceEndFrame requires ReferenceTasPath.' }
+if ($ReplayOnly -and (!$referencePath -or $ReferenceEndFrame -ne $recording.Frames.Count -or $ReferenceCaptureStartFrame -gt 0 -or $SearchSmoke -or $TrajectorySmoke -or $VerifyCompactMovie)) {
+    throw 'ReplayOnly needs a full reference TAS without simulator capture or search options.'
+}
 if ($ReferenceCaptureStartFrame -gt 0 -and ($null -eq $referencePath -or $ReferenceCaptureStartFrame -ge $ReferenceEndFrame)) { throw 'ReferenceCaptureStartFrame requires a reference and must precede ReferenceEndFrame.' }
 if ($ReferenceCaptureStartFrame -gt 0 -and $TrajectorySmoke -and $TrajectoryAnchorFrame -ne $ReferenceCaptureStartFrame) { throw 'A late reference trajectory must start at ReferenceCaptureStartFrame.' }
 if($SearchSmoke -and ($null -eq $referencePath -or $SearchSmokeStartFrame -lt 0 -or $SearchSmokeEndFrame -le $SearchSmokeStartFrame -or $ReferenceEndFrame -le $SearchSmokeEndFrame)) { throw 'SearchSmoke requires a captured reference containing the entire selected start/end range.' }
@@ -79,7 +83,7 @@ $modsPrefix = [IO.Path]::GetFullPath($mods).TrimEnd('\') + '\'
 if (!$probe.StartsWith($modsPrefix, [StringComparison]::OrdinalIgnoreCase) -or (Split-Path -Leaf $probe) -ne 'Tas.Studio.SimulationProbe') { throw 'Invalid temporary mod path.' }
 if (Test-Path -LiteralPath $probe) { throw "A temporary probe already exists: $probe" }
 $engine = if ([string]::IsNullOrWhiteSpace($EngineHostPath)) { Join-Path $PSScriptRoot 'Engine.Host\bin\Release\net10.0\TasStudio.EngineHost.exe' } else { [IO.Path]::GetFullPath($EngineHostPath) }
-if (!(Test-Path -LiteralPath $engine)) { throw 'Prepare the local host with prepare-engine-host.ps1 first.' }
+if (!$ReplayOnly -and !(Test-Path -LiteralPath $engine)) { throw 'Prepare the local host with prepare-engine-host.ps1 first.' }
 if (!(Test-Path -LiteralPath $installed)) { throw 'An installed Tas Studio mod is required for the controlled test.' }
 $run = [IO.Path]::GetFullPath((Join-Path $CaptureDirectory (Get-Date -Format 'yyyyMMdd-HHmmss-fff')))
 if ($run.StartsWith($modsPrefix, [StringComparison]::OrdinalIgnoreCase)) { throw 'Store test captures outside the game Mods directory.' }
@@ -97,6 +101,7 @@ if ($referencePath) {
     Set-Content -LiteralPath (Join-Path $run 'reference-start.txt') -Value $ReferenceCaptureStartFrame
     Write-Host "Reference recording: $($recording.Name), frames [0,$ReferenceEndFrame). Original file remains read-only."
 }
+if($ReplayOnly){New-Item -ItemType File -Path (Join-Path $run 'native-replay-only.txt') | Out-Null}
 $buildLog = Join-Path $run 'build.log'
 & dotnet build (Join-Path $PSScriptRoot 'RechargeTas.csproj') -c Release --nologo "-p:ManagedDir=$managed" "-p:HarmonyPath=$HarmonyPath" *> $buildLog
 if ($LASTEXITCODE -ne 0) { throw "Mod build failed: $buildLog" }
@@ -216,6 +221,14 @@ finally {
             if ($movie.Name -like 'engine-probe-*') { Move-Item -LiteralPath $_.FullName -Destination (Join-Path $run 'movies') }
         }
     }
+}
+if ($ReplayOnly) {
+    $report = Join-Path $run 'native-replay.json'
+    if (!(Test-Path -LiteralPath $report)) { throw "Native replay produced no report. Inspect $run" }
+    Get-Content -LiteralPath $report
+    Write-Host "Installed DLL restored. Native replay report: $report"
+    if (!(Get-Content -LiteralPath $report -Raw | ConvertFrom-Json).Passed) { exit 1 }
+    exit 0
 }
 if (!(Select-String -LiteralPath (Join-Path $run 'result.log') -SimpleMatch 'PASS captures complete; original saved progress unchanged' -Quiet)) { throw "Native capture failed. Inspect $run" }
 $summary = @()

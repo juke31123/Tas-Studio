@@ -100,8 +100,8 @@ namespace Igtap.Tas.Runtime
         private static void PreparePlayerStart(Movement __instance)
         {
             var s = Session;
-            if (s != null && s.Active && s.Mode == SessionMode.Loading && s.Movie.StartSetup != null)
-                try { ConfiguredStart.Apply(__instance, s.Movie.StartSetup); }
+            if (s != null && s.Active && s.Mode == SessionMode.Loading && s.RunStartSetup != null)
+                try { ConfiguredStart.Apply(__instance, s.RunStartSetup); }
                 catch (Exception error) { s.NotifySetupError(error.Message); }
         }
         private static void PlayerStarted() => Session?.NotifyPlayerStarted();

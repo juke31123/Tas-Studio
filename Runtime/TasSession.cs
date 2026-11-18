@@ -31,6 +31,8 @@ namespace Igtap.Tas.Runtime
         private int _loadSettledFrames;
         private bool _returnToMenu;
         private string _stopScene, _setupError;
+        internal TasStartSetup RunStartSetup { get; private set; }
+        private string _replayNotice = "";
         private Savestate _restoringState;
         public bool RestoringState => _restoringState != null;
         public int DesktopPageRequest = -1;
@@ -236,7 +238,7 @@ namespace Igtap.Tas.Runtime
         }
         private bool LoadingReady() => Mode == SessionMode.Stopping && _returnToMenu
             ? _sceneReady && IsMainMenu
-            : _sceneReady && _playerStarted && _zoneLoadSeen && _zoneLoads.Count == 0 && Adapter.Bind() && Adapter.PrepareCustomMap(Movie.StartSetup);
+            : _sceneReady && _playerStarted && _zoneLoadSeen && _zoneLoads.Count == 0 && Adapter.Bind() && Adapter.PrepareCustomMap(RunStartSetup);
         public void StartRecording()
         {
             RequireIdle();
@@ -277,15 +279,16 @@ namespace Igtap.Tas.Runtime
         }
         public void StartPlayback(int seek = -1, bool branch = false)
         {
-            RequireIdle(); ValidatePlayback(Movie, seek);
-            _seek = seek; _seekBranch = branch; Begin(true);
+            RequireIdle();
+            var replay = ValidatePlayback(Movie, seek);
+            _seek = seek; _seekBranch = branch; Begin(true, replay.Start, replay.Notice);
         }
         internal void PrepareSearchStart(Movie original, int frame)
         {
-            ValidatePlayback(original, frame);
+            var replay = ValidatePlayback(original, frame);
             _searchReturnRecording = Mode == SessionMode.Recording;
             Release(); Movie = original; _seek = frame; _seekBranch = false; _searchSeek = true;
-            Begin(true); Status = "Preparing brute-force start at frame " + frame + ".";
+            Begin(true, replay.Start, replay.Notice); Status = "Preparing brute-force start at frame " + frame + "." + _replayNotice;
         }
         internal void ContinueSearchPreparation(int frame)
         {
@@ -296,11 +299,11 @@ namespace Igtap.Tas.Runtime
         internal void VerifySearchCandidate(Movie candidate)
         {
             if (!Active || !Frozen || HasPendingEdits || SearchPreview) throw new InvalidOperationException("Pause at the prepared start before verification.");
-            ValidatePlayback(candidate, -1);
+            var replay = ValidatePlayback(candidate, -1);
             var original = Movie; bool dirty = Dirty;
             _searchReturnRecording = Mode == SessionMode.Recording;
             Release(); _searchOriginal = original; _searchOriginalDirty = dirty;
-            Movie = candidate; Begin(true); Status = "Verifying brute-force candidate in the native game.";
+            Movie = candidate; Begin(true, replay.Start, replay.Notice); Status = "Verifying brute-force candidate in the native game." + _replayNotice;
         }
         internal void RestoreSearchOriginal(Movie original)
         {
@@ -323,21 +326,36 @@ namespace Igtap.Tas.Runtime
             if (Active && (Mode == SessionMode.Recording || Mode == SessionMode.Playback))
             { if (_frameOpen) _pauseAtEnd = true; else PauseNow(); }
         }
-        private void ValidatePlayback(Movie movie, int seek)
+        private static List<string> ReplayEnvironmentChanges(Movie movie)
+        {
+            var changes = new List<string>();
+            if (EnvironmentFingerprint.Game() != movie.GameHash) changes.Add("game assembly");
+            if (Application.unityVersion != movie.UnityVersion) changes.Add("Unity version");
+            if (movie.ModSetHash != EnvironmentFingerprint.Mods()) changes.Add("mod files");
+            return changes;
+        }
+        private (TasStartSetup Start, string Notice) ValidatePlayback(Movie movie, int seek)
         {
             movie.Validate();
             if (movie.WarmupFixedTicks.Count != movie.WarmupFrames) throw new InvalidOperationException("The movie has no complete startup tick schedule.");
             if ((movie.Frames.Count == 0 && seek != 0) || movie.StartState == null) throw new InvalidOperationException("Record or load a movie with a starting state first.");
             if (seek < -1 || seek > movie.Frames.Count) throw new ArgumentOutOfRangeException(nameof(seek));
-            if (EnvironmentFingerprint.Game() != movie.GameHash) throw new InvalidOperationException("Game assembly differs from this movie.");
-            if (Application.unityVersion != movie.UnityVersion) throw new InvalidOperationException("Unity version differs from this movie.");
-            if (movie.ModSetHash != EnvironmentFingerprint.Mods())
-                throw new InvalidOperationException("Incompatible TAS run: recorded with different mod files. Record a new run with the installed version.");
             if (movie.StartSetup == null && EnvironmentFingerprint.Saves() != movie.SaveHash) throw new InvalidOperationException("Saved progress differs. Restore the original save externally before playback.");
             if (movie.StartSetup != null && Adapter.SceneFor(movie.StartSetup) != movie.Scene) throw new InvalidOperationException("The selected start does not match the movie scene.");
-            Adapter.PrepareStart(movie.StartSetup,false);
             if (!IsMainMenu && SceneManager.GetActiveScene().path != movie.Scene) throw new InvalidOperationException("Enter this movie's scene or the main menu first: " + movie.Scene);
             if (!Adapter.CanLoadScene(movie.Scene)) throw new InvalidOperationException("The movie's gameplay scene is unavailable.");
+            var start = Adapter.ResolveReplayStart(movie.StartSetup);
+            var changes = ReplayEnvironmentChanges(movie);
+            if (start?.IsCustomMap == true && start.CustomMapHash != movie.StartSetup.CustomMapHash)
+            {
+                if (movie.StartWorld == null)
+                    throw new InvalidOperationException("This TAS needs the original map revision because it has no recorded starting world to verify.");
+                changes.Add("map revision " + start.CustomMapId + " (recorded as " + movie.StartSetup.CustomMapId + ")");
+            }
+            else if (start?.IsCustomMap == true && start.CustomMapId != movie.StartSetup.CustomMapId)
+                changes.Add("map ID " + start.CustomMapId + " (recorded as " + movie.StartSetup.CustomMapId + ")");
+            string notice = changes.Count == 0 ? "" : " Replay checks will compare recorded state on changed " + string.Join(", ", changes) + ".";
+            return (start, notice);
         }
         private WorldWitness CaptureWorld(bool compact=false)
         {
@@ -379,7 +397,7 @@ namespace Igtap.Tas.Runtime
             if (Active && !CanSaveState) throw new InvalidOperationException("Pause recording before loading a savestate.");
             // Complete every validation and backup before leaving the live state.
             var state = States.Load(name);
-            ValidatePlayback(state.Movie, state.Frame);
+            var replay = ValidatePlayback(state.Movie, state.Frame);
             if (Movie.StartState != null || Movie.Frames.Count > 0)
                 Store.Save("before-state-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N").Substring(0, 8), Movie);
             int rerecords = Math.Max(Movie.Rerecords, state.Movie.Rerecords);
@@ -400,11 +418,13 @@ namespace Igtap.Tas.Runtime
             Movie.Rerecords = rerecords;
             _recordingTrace = null; _restoringState = state;
             _seek = state.Frame; _seekBranch = false;
-            Begin(true);
-            Status = "Rebuilding savestate at frame " + state.Frame + ". Use Stop to cancel. Recording resumes paused after verification.";
+            Begin(true, replay.Start, replay.Notice);
+            Status = "Rebuilding savestate at frame " + state.Frame + ". Use Stop to cancel. Recording resumes paused after verification." + _replayNotice;
         }
-        private void Begin(bool playing)
+        private void Begin(bool playing, TasStartSetup replayStart = null, string notice = "")
         {
+            RunStartSetup = playing ? replayStart : Movie.StartSetup;
+            _replayNotice = notice;
             Checkpoints.Clear(); _worldExpected = _worldActual = null;
             Profiler.Reset();
             _profilePath = System.IO.Path.Combine(_profileDirectory, DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fff") + "-" +
@@ -423,8 +443,14 @@ namespace Igtap.Tas.Runtime
             _clock.SetSpeed(_speed);
             Mode = SessionMode.Loading;
             UnityEngine.Random.InitState(Movie.Seed);
-            Status = Movie.StartSetup != null ? "Loading the selected TAS start and abilities." : "Reloading saved scene; unsaved gameplay progress is discarded.";
-            try { RunPreferences.Begin(Movie, !playing); Adapter.BeginRunEnvironment(Movie.Difficulty, Movie.StartSetup != null); SceneManager.LoadScene(Movie.Scene); }
+            Status = (Movie.StartSetup != null ? "Loading the selected TAS start and abilities." : "Reloading saved scene; unsaved gameplay progress is discarded.") + _replayNotice;
+            try
+            {
+                RunPreferences.Begin(Movie, !playing);
+                Adapter.BeginRunEnvironment(Movie.Difficulty, Movie.StartSetup != null);
+                Adapter.SetReplayMapAlias(Movie.StartSetup, RunStartSetup);
+                SceneManager.LoadScene(Movie.Scene);
+            }
             catch { Release(); throw; }
         }
         public void Early()
@@ -484,7 +510,7 @@ namespace Igtap.Tas.Runtime
                         Status = _returnToMenu ? "Stopped and saved; returned to the main menu." : "Stopped and saved; original saved scene finished reloading.";
                         return;
                     }
-                    Adapter.FinishWorldSetup(Movie.StartSetup);
+                    Adapter.FinishWorldSetup(RunStartSetup);
                     Adapter.PrepareSimulation();
                     TraceBootstrap("before-first-warmup-frame");
                     _clock.FinishLoading(_bootstrapScale);
@@ -523,7 +549,7 @@ namespace Igtap.Tas.Runtime
                             if (!_playing) _recordingTrace = _bootstrapTrace.ToArray();
                             WriteBootstrapReport();
                             Mode = _playing ? SessionMode.Playback : SessionMode.Recording;
-                            Status = _playing ? "Playing input movie." : "Recording input movie.";
+                            Status = _playing ? "Playing input movie." + _replayNotice : "Recording input movie.";
                             if (_seek == 0) FinishSeek();
                             else if (!_playing && StartPaused || Audit.Stepping) PauseNow();
                         }
@@ -794,9 +820,9 @@ namespace Igtap.Tas.Runtime
             if (Dirty && (Movie.StartState != null || Movie.Frames.Count > 0))
                 Store.Save("autosave-before-load-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss"), Movie);
             Movie = loaded; FileName = MovieStore.NormalizeName(name); Cursor = 0; _recordingTrace = null; Dirty = false;
+            var changes = ReplayEnvironmentChanges(Movie);
             Status = "Loaded " + FileName + ": " + Movie.Frames.Count + " frames." +
-                (Movie.ModSetHash != EnvironmentFingerprint.Mods()
-                    ? " Incompatible TAS run: recorded with different mod files. Record a new run with the installed version." : "");
+                (changes.Count == 0 ? "" : " Replay will check recorded state on changed " + string.Join(", ", changes) + ".");
         }
         public void Edited() { RequireIdle(); Movie.Validate(); Dirty = true; Cursor = 0; }
         public void RestoreEdit(Movie movie) { RequireIdle(); movie.Validate(); Movie = movie; Dirty = true; Cursor = 0; }
@@ -831,12 +857,12 @@ namespace Igtap.Tas.Runtime
             }
             if (firstChanged < Cursor || forceRebuild)
             {
-                ValidatePlayback(movie, target);
+                var replay = ValidatePlayback(movie, target);
                 Store.Save("before-timeline-edit-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N").Substring(0, 8), Movie);
                 movie.Rerecords = Math.Max(movie.Rerecords, Movie.Rerecords) + 1;
                 Release(); _searchMustRebuild = false; Movie = movie; Dirty = true; UseTimelineInput = true;
                 _seek = target; _seekBranch = false; _rebuildingEdit = true; _editReturnRecording = recording;
-                Begin(true); Status = "Rebuilding edited timeline to frame " + target + ".";
+                Begin(true, replay.Start, replay.Notice); Status = "Rebuilding edited timeline to frame " + target + "." + _replayNotice;
             }
             else
             {
@@ -856,12 +882,13 @@ namespace Igtap.Tas.Runtime
             bool restoring = _restoringState != null;
             _restoringState = null;
             var expected = Mode == SessionMode.Warmup ? Movie.StartState : Cursor < Movie.Frames.Count ? Movie.Frames[Cursor].Expected : null;
-            Mode = SessionMode.Desync; PauseNow(); Status = "DESYNC: " + reason; _host.LogWarning(Status);
+            Mode = SessionMode.Desync; PauseNow(); Status = "DESYNC: " + reason + _replayNotice; _host.LogWarning(Status);
             try
             {
                 var report = new {
                     Reason = reason, Frame = Cursor, Movie = FileName, GameHash = Movie.GameHash,
-                    StartSetup = Movie.StartSetup, Difficulty = Movie.Difficulty, Scene = Movie.Scene,
+                    StartSetup = Movie.StartSetup, LoadedStartSetup = RunStartSetup, ReplayEnvironment = _replayNotice,
+                    Difficulty = Movie.Difficulty, Scene = Movie.Scene,
                     Expected = expected, Actual = Adapter.Probe(), CurrentInput = _current, PreviousInput = _previous,
                     ActualFixedTicks = _fixedTicks,
                     Fps = Movie.FrameRate, PuPhase = PuPhase, NativePuPhase = Time.timeAsDouble - Time.fixedTimeAsDouble,
@@ -942,6 +969,7 @@ namespace Igtap.Tas.Runtime
         }
         private void Release()
         {
+            RunStartSetup = null; _replayNotice = "";
             _searchSeek = false;
             _menuToggleRequested = false;
             _stepPu = false; _puStepFrames = 0;
